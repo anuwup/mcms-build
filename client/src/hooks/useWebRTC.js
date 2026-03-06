@@ -30,14 +30,30 @@ export default function useWebRTC(socket, meetingId, currentUser) {
 
     const peersRef = useRef(new Map());
     const iceServersRef = useRef(null);
+    const candidateBufferRef = useRef(new Map());
     const localStreamRef = useRef(null);
     const screenStreamRef = useRef(null);
     const joinedRef = useRef(false);
 
+    const updatePeerState = useCallback((remoteSocketId, remoteInfo, remoteStream) => {
+        setPeers(prev => {
+            const filtered = prev.filter(p => p.socketId !== remoteSocketId);
+            return [...filtered, {
+                socketId: remoteSocketId,
+                userId: remoteInfo.userId,
+                name: remoteInfo.name,
+                profileImage: remoteInfo.profileImage,
+                stream: remoteStream,
+            }];
+        });
+    }, []);
+
     const createPeerConnection = useCallback((remoteSocketId, remoteInfo, initiator) => {
         if (peersRef.current.has(remoteSocketId)) return peersRef.current.get(remoteSocketId).pc;
 
-        const pc = new RTCPeerConnection({ iceServers: iceServersRef.current || FALLBACK_ICE_SERVERS });
+        const pc = new RTCPeerConnection({
+            iceServers: iceServersRef.current || FALLBACK_ICE_SERVERS,
+        });
 
         if (localStreamRef.current) {
             for (const track of localStreamRef.current.getTracks()) {
@@ -47,47 +63,60 @@ export default function useWebRTC(socket, meetingId, currentUser) {
 
         pc.onicecandidate = (e) => {
             if (e.candidate && socket) {
-                socket.emit('signal', { to: remoteSocketId, signal: { type: 'candidate', candidate: e.candidate } });
+                socket.emit('signal', {
+                    to: remoteSocketId,
+                    signal: { type: 'candidate', candidate: e.candidate },
+                });
             }
         };
 
         const remoteStream = new MediaStream();
         pc.ontrack = (e) => {
-            e.streams[0]?.getTracks().forEach(track => {
+            for (const track of e.streams[0]?.getTracks() ?? []) {
                 if (!remoteStream.getTracks().find(t => t.id === track.id)) {
                     remoteStream.addTrack(track);
                 }
-            });
-            setPeers(prev => {
-                const existing = prev.find(p => p.socketId === remoteSocketId);
-                if (existing && existing.stream === remoteStream) return prev;
-                return prev.filter(p => p.socketId !== remoteSocketId).concat({
-                    socketId: remoteSocketId,
-                    userId: remoteInfo.userId,
-                    name: remoteInfo.name,
-                    profileImage: remoteInfo.profileImage,
-                    stream: remoteStream,
-                });
-            });
+            }
+            updatePeerState(remoteSocketId, remoteInfo, remoteStream);
         };
 
         pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+            if (pc.connectionState === 'failed') {
                 removePeer(remoteSocketId);
             }
         };
 
+        pc.onnegotiationneeded = async () => {
+            if (!initiator) return;
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('signal', {
+                    to: remoteSocketId,
+                    signal: { type: 'offer', sdp: pc.localDescription.sdp },
+                });
+            } catch (err) {
+                console.error('Negotiation failed:', err);
+            }
+        };
+
         peersRef.current.set(remoteSocketId, { pc, info: remoteInfo, stream: remoteStream });
+        candidateBufferRef.current.set(remoteSocketId, []);
 
         if (initiator) {
-            pc.createOffer().then(offer => {
-                pc.setLocalDescription(offer);
-                socket.emit('signal', { to: remoteSocketId, signal: { type: 'offer', sdp: offer.sdp } });
-            }).catch(console.error);
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .then(() => {
+                    socket.emit('signal', {
+                        to: remoteSocketId,
+                        signal: { type: 'offer', sdp: pc.localDescription.sdp },
+                    });
+                })
+                .catch(err => console.error('Offer creation failed:', err));
         }
 
         return pc;
-    }, [socket]);
+    }, [socket, updatePeerState]);
 
     const removePeer = useCallback((socketId) => {
         const entry = peersRef.current.get(socketId);
@@ -95,6 +124,7 @@ export default function useWebRTC(socket, meetingId, currentUser) {
             entry.pc.close();
             peersRef.current.delete(socketId);
         }
+        candidateBufferRef.current.delete(socketId);
         setPeers(prev => prev.filter(p => p.socketId !== socketId));
     }, []);
 
@@ -200,7 +230,6 @@ export default function useWebRTC(socket, meetingId, currentUser) {
             screenStreamRef.current = null;
             setScreenStream(null);
 
-            // Restore camera track to all peers
             const camTrack = localStreamRef.current?.getVideoTracks()[0];
             if (camTrack) {
                 for (const [, { pc }] of peersRef.current) {
@@ -241,33 +270,76 @@ export default function useWebRTC(socket, meetingId, currentUser) {
     useEffect(() => {
         if (!socket) return;
 
-        const handleRoomPeers = ({ peers: existingPeers }) => {
+        const handleRoomPeers = async ({ peers: existingPeers }) => {
+            if (!iceServersRef.current) {
+                iceServersRef.current = await getIceServers();
+            }
             for (const peer of existingPeers) {
                 createPeerConnection(peer.socketId, peer, true);
             }
         };
 
-        const handlePeerJoined = ({ socketId, userId, name, profileImage }) => {
+        const handlePeerJoined = async ({ socketId, userId, name, profileImage }) => {
+            if (!iceServersRef.current) {
+                iceServersRef.current = await getIceServers();
+            }
             createPeerConnection(socketId, { userId, name, profileImage }, false);
         };
 
         const handleSignal = async ({ from, signal }) => {
             let entry = peersRef.current.get(from);
             if (!entry) {
-                entry = { pc: createPeerConnection(from, { userId: null, name: 'User', profileImage: null }, false) };
+                if (!iceServersRef.current) {
+                    iceServersRef.current = await getIceServers();
+                }
+                createPeerConnection(from, { userId: null, name: 'User', profileImage: null }, false);
                 entry = peersRef.current.get(from);
             }
+            if (!entry) return;
             const { pc } = entry;
 
-            if (signal.type === 'offer') {
-                await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                socket.emit('signal', { to: from, signal: { type: 'answer', sdp: answer.sdp } });
-            } else if (signal.type === 'answer') {
-                await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
-            } else if (signal.type === 'candidate') {
-                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+            try {
+                if (signal.type === 'offer') {
+                    if (pc.signalingState !== 'stable') {
+                        await Promise.all([
+                            pc.setLocalDescription({ type: 'rollback' }),
+                        ]).catch(() => {});
+                    }
+                    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
+
+                    const buffered = candidateBufferRef.current.get(from) || [];
+                    candidateBufferRef.current.set(from, []);
+                    for (const c of buffered) {
+                        await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+                    }
+
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit('signal', {
+                        to: from,
+                        signal: { type: 'answer', sdp: pc.localDescription.sdp },
+                    });
+                } else if (signal.type === 'answer') {
+                    if (pc.signalingState === 'have-local-offer') {
+                        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
+
+                        const buffered = candidateBufferRef.current.get(from) || [];
+                        candidateBufferRef.current.set(from, []);
+                        for (const c of buffered) {
+                            await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+                        }
+                    }
+                } else if (signal.type === 'candidate') {
+                    if (pc.remoteDescription && pc.remoteDescription.type) {
+                        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+                    } else {
+                        const buf = candidateBufferRef.current.get(from) || [];
+                        buf.push(signal.candidate);
+                        candidateBufferRef.current.set(from, buf);
+                    }
+                }
+            } catch (err) {
+                console.error('Signal handling error:', err);
             }
         };
 
