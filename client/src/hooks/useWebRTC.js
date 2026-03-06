@@ -3,6 +3,21 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+    },
 ];
 
 export default function useWebRTC(socket, meetingId, currentUser) {
@@ -83,8 +98,13 @@ export default function useWebRTC(socket, meetingId, currentUser) {
     }, []);
 
     const joinRoom = useCallback(async () => {
-        if (!socket || !meetingId || joinedRef.current) return;
+        if (joinedRef.current) return true;
         setMediaError(null);
+        if (!socket) {
+            setMediaError('Not connected to server — check your internet connection and reload.');
+            return false;
+        }
+        if (!meetingId) return false;
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
