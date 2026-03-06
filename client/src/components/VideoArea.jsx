@@ -144,8 +144,8 @@ export default function VideoArea({
   }, [fullscreenRef]);
 
   const handleJoin = useCallback(async () => {
-    await joinRoom();
-    setHasJoined(true);
+    const success = await joinRoom();
+    if (success) setHasJoined(true);
   }, [joinRoom]);
 
   const handleLeave = useCallback(() => {
@@ -214,6 +214,9 @@ export default function VideoArea({
           ) : !hasJoined ? (
             <div className="video-prejoin">
               <div className="prejoin-card">
+                {mediaError && (
+                  <p style={{ color: 'var(--danger, #ef4444)', fontSize: '0.875rem', textAlign: 'center', marginBottom: '0.5rem' }}>{mediaError}</p>
+                )}
                 <div className="prejoin-avatar">
                   {currentUser?.profileImage ? (
                     <img
@@ -226,13 +229,19 @@ export default function VideoArea({
                   )}
                 </div>
                 <h3 className="prejoin-title">{meetingTitle}</h3>
-                <p className="prejoin-subtitle">Ready to join?</p>
+                <p className="prejoin-subtitle">{mediaError ? 'Allow camera/mic access and try again.' : 'Ready to join?'}</p>
                 <button className="btn btn-primary prejoin-btn" onClick={handleJoin}>
-                  Join Meeting
+                  {mediaError ? 'Try Again' : 'Join Meeting'}
                 </button>
               </div>
             </div>
           ) : (
+            <>
+            {mediaError && (
+              <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', borderRadius: '0.375rem', marginBottom: '0.375rem', textAlign: 'center' }}>
+                {mediaError}
+              </div>
+            )}
             <div className={`video-grid ${gridClass}`}>
               <VideoTile
                 stream={screenStream || localStream}
@@ -252,6 +261,7 @@ export default function VideoArea({
                 />
               ))}
             </div>
+            </>
           )}
         </div>
       </div>
