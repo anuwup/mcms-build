@@ -976,7 +976,7 @@ app.get('/api/dashboard/stats', protect, (req, res) => {
 // ─── Serve client build under /mcms (production) ─────────────
 const CLIENT_BUILD = path.join(__dirname, '..', 'client', 'dist');
 app.use('/mcms', express.static(CLIENT_BUILD));
-app.get('/mcms/*', (req, res) => {
+app.get('/mcms/*path', (req, res) => {
     res.sendFile(path.join(CLIENT_BUILD, 'index.html'));
 });
 
