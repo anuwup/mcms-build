@@ -360,14 +360,10 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         }
     };
 
-    const meetingLink = createdMeeting?.id
-        ? `${window.location.origin}/?meeting=${createdMeeting.id}`
-        : null;
-
     const handleCopyLink = async () => {
-        if (!meetingLink) return;
+        if (!createdMeeting?.jitsiUrl) return;
         try {
-            await navigator.clipboard.writeText(meetingLink);
+            await navigator.clipboard.writeText(createdMeeting.jitsiUrl);
             setLinkCopied(true);
             setTimeout(() => setLinkCopied(false), 2000);
         } catch { /* fallback handled by UI */ }
@@ -382,7 +378,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
 
     // Post-creation success view
     if (createdMeeting) {
-        const hasLink = meetingLink && modality !== 'Offline';
+        const hasJitsi = createdMeeting.jitsiUrl && modality !== 'Offline';
         const isPoll = slots.length > 1;
         return (
             <div className={`modal-overlay${closing ? ' modal-closing' : ''}`} onClick={handleClose}>
@@ -416,14 +412,14 @@ export default function MeetingCreation({ onClose, onSubmit }) {
                             </div>
                         )}
 
-                        {hasLink && (
-                            <div className="meeting-link-card">
-                                <div className="meeting-link-label">
+                        {hasJitsi && (
+                            <div className="jitsi-link-card">
+                                <div className="jitsi-link-label">
                                     <Icon icon={Link01Icon} size={14} />
                                     Meeting Link
                                 </div>
-                                <div className="meeting-link-row">
-                                    <span className="meeting-link-url">{meetingLink}</span>
+                                <div className="jitsi-link-row">
+                                    <span className="jitsi-link-url">{createdMeeting.jitsiUrl}</span>
                                     <button className={`btn btn-sm ${linkCopied ? 'btn-success' : 'btn-secondary'}`} onClick={handleCopyLink}>
                                         <Icon icon={linkCopied ? Tick01Icon : Copy01Icon} size={14} />
                                         {linkCopied ? 'Copied' : 'Copy'}
@@ -500,11 +496,20 @@ export default function MeetingCreation({ onClose, onSubmit }) {
                         </div>
                     </div>
 
-                    {(modality === 'Online' || modality === 'Hybrid') && (
+                    {modality === 'Online' && (
                         <div className="form-group" style={{ padding: '0', background: 'none', borderRadius: 'var(--radius-sm)', border: 'none' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--primary)' }}>
                                 <Icon icon={Link01Icon} size={14} />
-                                A meeting link will be auto-generated
+                                A video call room will be auto-created
+                            </div>
+                        </div>
+                    )}
+
+                    {modality === 'Hybrid' && (
+                        <div className="form-group" style={{ padding: '0', background: 'none', borderRadius: 'var(--radius-sm)', border: 'none' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--primary)' }}>
+                                <Icon icon={Link01Icon} size={14} />
+                                A video call room will be auto-created
                             </div>
                         </div>
                     )}

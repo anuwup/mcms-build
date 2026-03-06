@@ -10,40 +10,38 @@ const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://
 
 export const SocketProvider = ({ children }) => {
     const { user } = useAuth();
-    const [socket, setSocket] = useState(null);
+    const socketRef = useRef(null);
     const [connected, setConnected] = useState(false);
 
     useEffect(() => {
         if (!user?.token) {
-            setSocket((prev) => {
-                if (prev) {
-                    prev.disconnect();
-                }
-                return null;
-            });
-            setConnected(false);
+            if (socketRef.current) {
+                socketRef.current.disconnect();
+                socketRef.current = null;
+                setConnected(false);
+            }
             return;
         }
 
-        const s = io(SOCKET_URL, {
+        const socket = io(SOCKET_URL, {
             auth: { token: user.token },
             transports: ['websocket', 'polling'],
         });
 
-        s.on('connect', () => setConnected(true));
-        s.on('disconnect', () => setConnected(false));
+        socket.on('connect', () => setConnected(true));
+        socket.on('disconnect', () => setConnected(false));
 
-        setSocket(s);
+        socketRef.current = socket;
 
         return () => {
-            s.disconnect();
-            setSocket(null);
+            socket.disconnect();
+            socketRef.current = null;
             setConnected(false);
         };
     }, [user?.token]);
 
     return (
-        <SocketContext.Provider value={{ socket, connected }}>
+        <SocketContext.Provider value={{ socket: socketRef.current, connected }}>
             {children}
         </SocketContext.Provider>
     );

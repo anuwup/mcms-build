@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
@@ -19,9 +21,7 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (email, password) => {
         try {
-            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-        const base = apiBase.endsWith('/api') ? apiBase : `${apiBase.replace(/\/?$/, '')}/api`;
-        const res = await fetch(`${base}/auth/login`, {
+            const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
@@ -40,9 +40,7 @@ export const AuthProvider = ({ children }) => {
 
     const register = async (name, email, password) => {
         try {
-            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-            const base = apiBase.endsWith('/api') ? apiBase : `${apiBase.replace(/\/?$/, '')}/api`;
-            const res = await fetch(`${base}/auth/register`, {
+            const res = await fetch(`${API_BASE}/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, email, password })

@@ -109,8 +109,7 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
         }
 
         if (notif.type === 'poll_invite' && onOpenPoll) {
-            const id = notif.meetingId?._id ?? notif.meetingId;
-            onOpenPoll(id != null ? String(id) : id);
+            onOpenPoll(notif.meetingId?._id || notif.meetingId);
             setShowNotif(false);
         }
     };

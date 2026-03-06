@@ -13,6 +13,8 @@ const meetingSchema = new mongoose.Schema({
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     pollId: { type: mongoose.Schema.Types.ObjectId, ref: 'Poll' },
     status: { type: String, default: 'pending_poll', enum: ['pending_poll', 'scheduled', 'in-progress', 'completed', 'cancelled'] },
+    jitsiUrl: { type: String },
+    jitsiRoomName: { type: String },
 }, {
     timestamps: true
 });

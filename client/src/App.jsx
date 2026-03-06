@@ -7,13 +7,11 @@ import VideoArea from "./components/VideoArea";
 import TranscriptFeed from "./components/TranscriptFeed";
 import ActionItems from "./components/ActionItems";
 import LiveOutcome from "./components/LiveOutcome";
-import MeetingNotes from "./components/MeetingNotes";
 import MeetingCreation from "./components/MeetingCreation";
 import ProductivityDashboard from "./components/ProductivityDashboard";
 import PollVoting from "./components/PollVoting";
 import ProfileSettings from "./components/ProfileSettings";
 import useKeyboardShortcuts from "./hooks/useKeyboardShortcuts";
-import useTranscriptionCapture from "./hooks/useTranscriptionCapture";
 import Icon from "./components/Icon";
 import { Calendar02Icon, Clock01Icon, UserIcon } from "@hugeicons/core-free-icons";
 
@@ -23,8 +21,7 @@ import Signup from "./pages/Signup";
 import { useAuth } from "./context/AuthContext";
 import { useSocket } from "./context/SocketContext";
 
-const _apiRaw = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-const API_BASE = _apiRaw.endsWith('/api') ? _apiRaw : `${_apiRaw.replace(/\/?$/, '')}/api`;
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
 
 const VIEW_KEYS = ['dashboard', 'meeting', 'schedule', 'archive', 'analytics', 'settings', 'profile'];
 
@@ -58,8 +55,6 @@ function DashboardApp() {
   const [agendaPanelOpen, setAgendaPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const meetingLayoutRef = useRef(null);
-  const [transcriptionMicEnabled, setTranscriptionMicEnabled] = useState(true);
-  const [callLocalStream, setCallLocalStream] = useState(null);
 
   const toggleAgendaPanel = useCallback(() => setAgendaPanelOpen(prev => !prev), []);
   const toggleRightPanel = useCallback(() => setRightPanelOpen(prev => !prev), []);
@@ -91,15 +86,6 @@ function DashboardApp() {
   ], [pollMeetingId, toggleFullscreen]);
 
   useKeyboardShortcuts(shortcuts);
-  useTranscriptionCapture(socket, selectedMeeting?.id, user, {
-    micEnabled: transcriptionMicEnabled,
-    callLocalStream,
-  });
-
-  useEffect(() => {
-    setTranscriptionMicEnabled(true);
-    setCallLocalStream(null);
-  }, [selectedMeeting?.id]);
 
   // Helper for authenticated requests
   const fetchWithAuth = async (url, options = {}) => {
@@ -117,17 +103,6 @@ function DashboardApp() {
   useEffect(() => {
     fetchMeetings();
     fetchDashboardStats();
-  }, []);
-
-  // Open poll modal when landing with ?meeting= ID (e.g. shared poll link)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const meetingFromUrl = params.get("meeting");
-    if (meetingFromUrl) {
-      setPollMeetingId(meetingFromUrl);
-      window.history.replaceState({}, "", window.location.pathname || "/");
-    }
   }, []);
 
   // Apply theme to document root
@@ -151,8 +126,7 @@ function DashboardApp() {
   useEffect(() => {
     if (!socket || !selectedMeeting) return;
 
-    const meetingId = selectedMeeting.id != null ? String(selectedMeeting.id) : null;
-    if (!meetingId) return;
+    const meetingId = selectedMeeting.id;
     socket.emit('join_meeting', { meetingId });
 
     const handleTranscriptUpdate = (segment) => {
@@ -254,6 +228,51 @@ function DashboardApp() {
         );
 
       case "meeting":
+        if (!selectedMeeting) {
+          return (
+            <div style={{ flex: 1, overflow: "auto", padding: "1.5rem" }}>
+              <h2 style={{ fontSize: "1.375rem", fontWeight: 700, marginBottom: "1rem" }}>
+                Live Meeting
+              </h2>
+              <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+                Select a meeting below to join the call and see agenda, transcript, and notes.
+              </p>
+              <div className="meeting-list">
+                {meetings.map((meeting) => (
+                  <div
+                    key={meeting.id}
+                    className="meeting-card glass-card"
+                    onClick={() => {
+                      setSelectedMeeting(meeting);
+                    }}
+                  >
+                    <div className="meeting-card-title">{meeting.title}</div>
+                    <div className="meeting-card-meta">
+                      <span className={`chip ${meeting.modality === "Online" ? "chip-blue" : meeting.modality === "Hybrid" ? "chip-violet" : "chip-emerald"}`}>
+                        {meeting.modality}
+                      </span>
+                      {meeting.date && <span><Icon icon={Calendar02Icon} size={14} /> {formatDate(meeting.date)}</span>}
+                      {meeting.time && <span><Icon icon={Clock01Icon} size={14} /> {meeting.time}</span>}
+                      <span><Icon icon={UserIcon} size={14} /> {meeting.host}</span>
+                      <span className={`chip ${meeting.status === "completed" ? "chip-emerald" : meeting.status === "pending_poll" ? "chip-blue" : "chip-amber"}`}>
+                        {meeting.status === "pending_poll" ? "Poll Open" : meeting.status}
+                      </span>
+                      {meeting.status === "pending_poll" && meeting.pollId && (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          style={{ marginLeft: "auto" }}
+                          onClick={(e) => { e.stopPropagation(); setPollMeetingId(meeting.id); }}
+                        >
+                          Vote
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
         return (
           <div
             ref={meetingLayoutRef}
@@ -279,8 +298,6 @@ function DashboardApp() {
               rightPanelOpen={rightPanelOpen}
               onToggleAgendaPanel={toggleAgendaPanel}
               onToggleRightPanel={toggleRightPanel}
-              onMicStateChange={setTranscriptionMicEnabled}
-              onCallStreamReady={setCallLocalStream}
             />
             {rightPanelOpen && (
               <div className="meeting-side-panel meeting-side-panel-right open">
@@ -288,7 +305,6 @@ function DashboardApp() {
                   <TranscriptFeed transcripts={transcripts} onClosePanel={toggleRightPanel} />
                   <ActionItems items={actionItems} />
                   <LiveOutcome />
-                  <MeetingNotes meetingId={selectedMeeting?.id} />
                 </div>
               </div>
             )}
@@ -341,7 +357,7 @@ function DashboardApp() {
                       <button
                         className="btn btn-sm btn-primary"
                         style={{ marginLeft: 'auto' }}
-                        onClick={(e) => { e.stopPropagation(); setPollMeetingId(meeting.id != null ? String(meeting.id) : meeting.id); }}
+                        onClick={(e) => { e.stopPropagation(); setPollMeetingId(meeting.id); }}
                       >
                         Vote
                       </button>

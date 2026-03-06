@@ -11,7 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 
 const _raw = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-const API_BASE = _raw.endsWith('/api') ? _raw : `${_raw.replace(/\/?$/, '')}/api`;
+const API_BASE = _raw.endsWith('/api') ? _raw : `${_raw}/api`;
 
 export default function PollVoting({ meetingId, onClose }) {
     const { user } = useAuth();
@@ -19,7 +19,7 @@ export default function PollVoting({ meetingId, onClose }) {
     const [poll, setPoll] = useState(null);
     const [meetingTitle, setMeetingTitle] = useState('');
     const [modality, setModality] = useState('');
-    const [meetingUrl, setMeetingUrl] = useState('');
+    const [jitsiUrl, setJitsiUrl] = useState('');
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [hasVoted, setHasVoted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -28,8 +28,7 @@ export default function PollVoting({ meetingId, onClose }) {
 
     useEffect(() => {
         if (!meetingId || !user?.token) return;
-        const mid = String(meetingId);
-        fetch(`${API_BASE}/polls/${mid}`, {
+        fetch(`${API_BASE}/polls/${meetingId}`, {
             headers: { Authorization: `Bearer ${user.token}` },
         })
             .then(r => {
@@ -40,7 +39,7 @@ export default function PollVoting({ meetingId, onClose }) {
                 setPoll(data);
                 setMeetingTitle(data.meetingTitle || '');
                 setModality(data.modality || '');
-                setMeetingUrl(data.meetingId ? `${window.location.origin}/?meeting=${data.meetingId || mid}` : '');
+                setJitsiUrl(data.jitsiUrl || '');
 
                 const myVoteIdx = data.slots?.findIndex(s =>
                     s.votes?.some(v => (v._id || v).toString() === user._id.toString())
@@ -89,7 +88,7 @@ export default function PollVoting({ meetingId, onClose }) {
             setPoll(data.poll);
             setHasVoted(true);
             if (data.resolved && data.meeting) {
-                setMeetingUrl(`${window.location.origin}/?meeting=${data.meeting.id || meetingId}`);
+                setJitsiUrl(data.meeting.jitsiUrl || '');
             }
         } catch (err) {
             setError(err.message);
@@ -100,7 +99,7 @@ export default function PollVoting({ meetingId, onClose }) {
 
     const handleCopyLink = async () => {
         try {
-            await navigator.clipboard.writeText(meetingUrl);
+            await navigator.clipboard.writeText(jitsiUrl);
             setLinkCopied(true);
             setTimeout(() => setLinkCopied(false), 2000);
         } catch { /* ignore */ }
@@ -178,14 +177,14 @@ export default function PollVoting({ meetingId, onClose }) {
                             {totalVotes} total vote{totalVotes !== 1 ? 's' : ''}
                         </div>
 
-                        {isResolved && meetingUrl && modality !== 'Offline' && (
-                            <div className="meeting-link-card" style={{ marginTop: '1rem' }}>
-                                <div className="meeting-link-label">
+                        {isResolved && jitsiUrl && modality !== 'Offline' && (
+                            <div className="jitsi-link-card" style={{ marginTop: '1rem' }}>
+                                <div className="jitsi-link-label">
                                     <Icon icon={Link01Icon} size={14} />
                                     Meeting Link
                                 </div>
-                                <div className="meeting-link-row">
-                                    <span className="meeting-link-url">{meetingUrl}</span>
+                                <div className="jitsi-link-row">
+                                    <span className="jitsi-link-url">{jitsiUrl}</span>
                                     <button className={`btn btn-sm ${linkCopied ? 'btn-success' : 'btn-secondary'}`} onClick={handleCopyLink}>
                                         <Icon icon={linkCopied ? Tick01Icon : Copy01Icon} size={14} />
                                         {linkCopied ? 'Copied' : 'Copy'}

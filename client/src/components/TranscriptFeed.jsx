@@ -3,7 +3,7 @@ import Icon from './Icon';
 import ShortcutTooltip from './ShortcutTooltip';
 import { PinIcon, ThumbsUpIcon, ThumbsDownIcon, MinusSignIcon, ArrowDown01Icon, ArrowUp01Icon, Notebook01Icon, SidebarRightIcon } from '@hugeicons/core-free-icons';
 
-const SERVER_BASE = 'http://localhost:5001';
+const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace(/\/api$/, '');
 
 const sentimentConfig = {
     positive: { icon: ThumbsUpIcon, class: 'sentiment-positive', label: 'Positive' },

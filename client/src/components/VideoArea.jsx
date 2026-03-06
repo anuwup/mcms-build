@@ -7,18 +7,15 @@ import {
   MinimizeScreenIcon,
   SidebarLeftIcon,
   SidebarRightIcon,
-  Mic01Icon,
-  MicOff01Icon,
-  Video01Icon,
-  VideoOffIcon,
-  ComputerScreenShareIcon,
-  CallEnd01Icon,
-  Call02Icon,
 } from "@hugeicons/core-free-icons";
 import ShortcutTooltip from "./ShortcutTooltip";
 import useWebRTC from "../hooks/useWebRTC";
+import useTranscriptionCapture from "../hooks/useTranscriptionCapture";
+import { useSocket } from "../context/SocketContext";
 
-function VideoTile({ stream, name, image, muted, camOff, isLocal, isScreen, serverBase }) {
+const SERVER_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5001").replace(/\/api$/, "");
+
+function VideoTile({ stream, name, profileImage, muted, isSelf, speaking }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -27,34 +24,41 @@ function VideoTile({ stream, name, image, muted, camOff, isLocal, isScreen, serv
     }
   }, [stream]);
 
-  const hasVideo = stream && stream.getVideoTracks().some((t) => t.enabled && !camOff);
+  const hasVideo = stream?.getVideoTracks().some((t) => t.enabled && !t.muted);
+  const initial = name?.charAt(0)?.toUpperCase() || "?";
 
   return (
-    <div className={`rtc-tile${isLocal ? " rtc-tile-local" : ""}${isScreen ? " rtc-tile-screen" : ""}`}>
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={isLocal}
-        className={`rtc-video${hasVideo ? "" : " rtc-video-hidden"}`}
-      />
-      {!hasVideo && (
-        <div className="rtc-tile-avatar">
-          {image ? (
-            <img src={`${serverBase || ""}${image}`} alt="" className="rtc-avatar-img" />
-          ) : (
-            <span>{(name || "?").charAt(0).toUpperCase()}</span>
-          )}
-        </div>
+    <div className={`video-tile ${speaking ? "speaking" : ""}`}>
+      {hasVideo ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={muted}
+          className="video-tile-video"
+          style={isSelf ? { transform: "scaleX(-1)" } : undefined}
+        />
+      ) : (
+        <>
+          <video ref={videoRef} autoPlay playsInline muted={muted} style={{ display: "none" }} />
+          <div className="video-tile-avatar">
+            {profileImage ? (
+              <img
+                src={`${SERVER_BASE}${profileImage}`}
+                alt=""
+                className="video-tile-avatar-img"
+              />
+            ) : (
+              <span>{initial}</span>
+            )}
+          </div>
+        </>
       )}
-      <div className="rtc-tile-nameplate">
-        {muted && (
-          <span className="rtc-mute-indicator">
-            <Icon icon={MicOff01Icon} size={11} />
-          </span>
-        )}
-        <span className="rtc-name-text">{isLocal ? "You" : name || "User"}</span>
+      <div className="video-tile-name">
+        {name || "User"}
+        {isSelf && " (You)"}
       </div>
+      {isSelf && <div className="self-badge">YOU</div>}
     </div>
   );
 }
@@ -70,44 +74,35 @@ export default function VideoArea({
   rightPanelOpen,
   onToggleAgendaPanel,
   onToggleRightPanel,
-  onMicStateChange,
-  onCallStreamReady,
 }) {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const isOnline = modality === "Online" || modality === "Hybrid";
-
+  const { socket } = useSocket();
   const {
     localStream,
-    screenStream,
     peers,
-    micEnabled,
-    camEnabled,
-    screenSharing,
-    joined,
-    joinCall,
-    hangUp,
-    toggleMic,
-    toggleCamera,
-    shareScreen,
-  } = useWebRTC(meetingId, currentUser, isOnline);
+    audioEnabled,
+    videoEnabled,
+    screenStream,
+    joinRoom,
+    leaveRoom,
+    toggleAudio,
+    toggleVideo,
+    toggleScreenShare,
+  } = useWebRTC(socket, meetingId, currentUser);
 
-  const serverBase = (import.meta.env.VITE_API_URL || "http://localhost:5001/api").replace("/api", "");
+  useTranscriptionCapture(socket, meetingId, localStream);
 
-  useEffect(() => {
-    if (joined && onMicStateChange) onMicStateChange(micEnabled);
-  }, [joined, micEnabled, onMicStateChange]);
-
-  useEffect(() => {
-    if (!onCallStreamReady) return;
-    if (joined && localStream) onCallStreamReady(localStream);
-    else onCallStreamReady(null);
-  }, [joined, localStream, onCallStreamReady]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [hasJoined, setHasJoined] = useState(false);
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
+
+  useEffect(() => {
+    setHasJoined(false);
+  }, [meetingId]);
 
   const toggleFullscreen = useCallback(() => {
     const target = fullscreenRef?.current;
@@ -119,15 +114,28 @@ export default function VideoArea({
     }
   }, [fullscreenRef]);
 
-  const totalCount = (joined ? 1 : 0) + peers.length;
+  const handleJoin = useCallback(async () => {
+    await joinRoom();
+    setHasJoined(true);
+  }, [joinRoom]);
+
+  const handleLeave = useCallback(() => {
+    leaveRoom();
+    setHasJoined(false);
+  }, [leaveRoom]);
+
+  const totalParticipants = 1 + peers.length;
+
   const gridClass =
-    totalCount <= 1
-      ? "rtc-grid-1"
-      : totalCount === 2
-        ? "rtc-grid-2"
-        : totalCount <= 4
-          ? "rtc-grid-4"
-          : "rtc-grid-6";
+    totalParticipants <= 1
+      ? "grid-1"
+      : totalParticipants <= 2
+        ? "grid-2"
+        : totalParticipants <= 4
+          ? "grid-4"
+          : totalParticipants <= 6
+            ? "grid-6"
+            : "grid-many";
 
   return (
     <div className="video-area">
@@ -140,12 +148,12 @@ export default function VideoArea({
           </ShortcutTooltip>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 className="video-meeting-title">
-            {meetingTitle || "No Active Meeting"}
-          </h2>
+          <h2 className="video-meeting-title">{meetingTitle || "No Active Meeting"}</h2>
           <div className="video-meeting-meta">
             <Icon icon={UserGroupIcon} size={14} />
-            <span>{participants?.length || 0} participants</span>
+            <span>
+              {hasJoined ? `${totalParticipants} in call` : `${participants?.length || 0} participants`}
+            </span>
           </div>
         </div>
         <ShortcutTooltip keys={["F"]}>
@@ -169,96 +177,67 @@ export default function VideoArea({
 
       <div className="video-container">
         <div className="video-placeholder">
-          {isOnline ? (
-            joined ? (
-              <div className={`rtc-grid ${gridClass}`}>
-                <VideoTile
-                  stream={screenSharing ? screenStream : localStream}
-                  name={currentUser?.name}
-                  image={currentUser?.profileImage}
-                  muted={!micEnabled}
-                  camOff={!camEnabled && !screenSharing}
-                  isLocal
-                  isScreen={screenSharing}
-                  serverBase={serverBase}
-                />
-                {peers.map((peer) => (
-                  <VideoTile
-                    key={peer.socketId}
-                    stream={peer.stream}
-                    name={peer.name}
-                    image={peer.image}
-                    muted={!peer.micEnabled}
-                    camOff={!peer.camEnabled}
-                    serverBase={serverBase}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="rtc-join-prompt">
-                <div className="rtc-join-icon">
-                  <Icon icon={Video01Icon} size={36} />
+          {modality === "Offline" ? (
+            <div className="video-offline-message">
+              This is an Offline meeting. Location details are in the schedule.
+            </div>
+          ) : !hasJoined ? (
+            <div className="video-prejoin">
+              <div className="prejoin-card">
+                <div className="prejoin-avatar">
+                  {currentUser?.profileImage ? (
+                    <img
+                      src={`${SERVER_BASE}${currentUser.profileImage}`}
+                      alt=""
+                      className="prejoin-avatar-img"
+                    />
+                  ) : (
+                    <span>{currentUser?.name?.charAt(0)?.toUpperCase() || "U"}</span>
+                  )}
                 </div>
-                <h3>Ready to join?</h3>
-                <p>Your camera and microphone will be activated when you join.</p>
-                <button className="btn btn-primary rtc-join-btn" onClick={joinCall}>
-                  <Icon icon={Call02Icon} size={18} />
+                <h3 className="prejoin-title">{meetingTitle}</h3>
+                <p className="prejoin-subtitle">Ready to join?</p>
+                <button className="btn btn-primary prejoin-btn" onClick={handleJoin}>
                   Join Meeting
                 </button>
               </div>
-            )
-          ) : modality === "Offline" ? (
-            <div className="rtc-offline-notice">
-              This is an Offline meeting. Location details are in the schedule.
             </div>
           ) : (
-            <div className="video-grid">
-              {(participants || ["Host", "Participant 1", "Participant 2", "Participant 3"])
-                .slice(0, 4)
-                .map((p, i) => (
-                  <div key={i} className="video-tile" style={{ animationDelay: `${i * 0.1}s` }}>
-                    <div className="video-tile-avatar">
-                      <span>{typeof p === "string" ? p.charAt(0).toUpperCase() : "?"}</span>
-                    </div>
-                    <div className="video-tile-name">{p}</div>
-                    {i === 0 && <div className="host-badge">HOST</div>}
-                  </div>
-                ))}
+            <div className={`video-grid ${gridClass}`}>
+              <VideoTile
+                stream={screenStream || localStream}
+                name={currentUser?.name}
+                profileImage={currentUser?.profileImage}
+                muted={true}
+                isSelf={true}
+              />
+              {peers.map((peer) => (
+                <VideoTile
+                  key={peer.socketId}
+                  stream={peer.stream}
+                  name={peer.name}
+                  profileImage={peer.profileImage}
+                  muted={false}
+                  isSelf={false}
+                />
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      {isOnline && joined && (
-        <div className="rtc-toolbar">
-          <button
-            className={`rtc-toolbar-btn${micEnabled ? "" : " rtc-btn-off"}`}
-            onClick={toggleMic}
-            data-tooltip={micEnabled ? "Mute" : "Unmute"}
-          >
-            <Icon icon={micEnabled ? Mic01Icon : MicOff01Icon} size={20} />
-          </button>
-          <button
-            className={`rtc-toolbar-btn${camEnabled ? "" : " rtc-btn-off"}`}
-            onClick={toggleCamera}
-            data-tooltip={camEnabled ? "Camera off" : "Camera on"}
-          >
-            <Icon icon={camEnabled ? Video01Icon : VideoOffIcon} size={20} />
-          </button>
-          <button
-            className={`rtc-toolbar-btn${screenSharing ? " rtc-btn-active" : ""}`}
-            onClick={shareScreen}
-            data-tooltip={screenSharing ? "Stop sharing" : "Share screen"}
-          >
-            <Icon icon={ComputerScreenShareIcon} size={20} />
-          </button>
-          <button className="rtc-toolbar-btn rtc-btn-hangup" onClick={hangUp} data-tooltip="Leave call">
-            <Icon icon={CallEnd01Icon} size={20} />
-          </button>
-        </div>
-      )}
-
-      <HostControls meetingId={meetingId} meetingTitle={meetingTitle} />
+      <HostControls
+        meetingId={meetingId}
+        meetingTitle={meetingTitle}
+        audioEnabled={audioEnabled}
+        videoEnabled={videoEnabled}
+        screenSharing={!!screenStream}
+        onToggleAudio={toggleAudio}
+        onToggleVideo={toggleVideo}
+        onToggleScreenShare={toggleScreenShare}
+        onLeave={handleLeave}
+        hasJoined={hasJoined}
+      />
 
       <style>{`
         .video-area {
@@ -314,7 +293,7 @@ export default function VideoArea({
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 1rem;
+          padding: 0.75rem;
           overflow: hidden;
         }
         .video-placeholder {
@@ -323,15 +302,77 @@ export default function VideoArea({
           border-radius: var(--radius-lg);
           overflow: hidden;
         }
+        .video-offline-message {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
+          color: var(--text-muted);
+        }
 
-        /* ── Video grid (placeholder fallback) ── */
+        /* Pre-join screen */
+        .video-prejoin {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
+          background: var(--bg-elevated);
+          border-radius: var(--radius-lg);
+          border: 0.0625rem solid var(--border);
+        }
+        .prejoin-card {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 1rem;
+          padding: 3rem 4rem;
+        }
+        .prejoin-avatar {
+          width: 5rem;
+          height: 5rem;
+          border-radius: 50%;
+          background: var(--primary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 2rem;
+          font-weight: 700;
+          color: white;
+          overflow: hidden;
+        }
+        .prejoin-avatar-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .prejoin-title {
+          font-size: 1.125rem;
+          font-weight: 600;
+          text-align: center;
+        }
+        .prejoin-subtitle {
+          font-size: 0.8125rem;
+          color: var(--text-muted);
+        }
+        .prejoin-btn {
+          margin-top: 0.5rem;
+          padding: 0.625rem 2rem;
+          font-size: 0.875rem;
+        }
+
+        /* Video grid */
         .video-grid {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 0.5rem;
+          gap: 0.375rem;
           width: 100%;
           height: 100%;
         }
+        .grid-1 { grid-template-columns: 1fr; }
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-4 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+        .grid-6 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+        .grid-many { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+
         .video-tile {
           position: relative;
           background: var(--bg-elevated);
@@ -341,11 +382,23 @@ export default function VideoArea({
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 0.625rem;
+          overflow: hidden;
           animation: slideUp 0.4s ease both;
           transition: border-color 0.3s;
         }
-        .video-tile:hover { border-color: var(--border-hover); }
+        .video-tile:hover {
+          border-color: var(--border-hover);
+        }
+        .video-tile.speaking {
+          border-color: var(--primary);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent);
+        }
+        .video-tile-video {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: inherit;
+        }
         .video-tile-avatar {
           width: 3.5rem;
           height: 3.5rem;
@@ -357,8 +410,37 @@ export default function VideoArea({
           font-size: 1.375rem;
           font-weight: 700;
           color: white;
+          overflow: hidden;
         }
-        .video-tile-name { font-size: 0.8125rem; font-weight: 500; color: var(--text-secondary); }
+        .video-tile-avatar-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .video-tile-name {
+          position: absolute;
+          bottom: 0.5rem;
+          left: 0.5rem;
+          padding: 0.1875rem 0.5rem;
+          background: rgba(0, 0, 0, 0.6);
+          border-radius: 0.25rem;
+          font-size: 0.75rem;
+          font-weight: 500;
+          color: #fff;
+          backdrop-filter: blur(4px);
+        }
+        .self-badge {
+          position: absolute;
+          top: 0.5rem;
+          right: 0.5rem;
+          padding: 0.125rem 0.375rem;
+          background: var(--primary);
+          border-radius: 6.25rem;
+          font-size: 0.5625rem;
+          font-weight: 700;
+          color: white;
+          letter-spacing: 0.03125rem;
+        }
         .host-badge {
           position: absolute;
           top: 0.625rem;
@@ -370,188 +452,6 @@ export default function VideoArea({
           font-weight: 700;
           color: white;
           letter-spacing: 0.03125rem;
-        }
-
-        /* ── WebRTC Grid ── */
-        .rtc-grid {
-          display: grid;
-          gap: 0.5rem;
-          width: 100%;
-          height: 100%;
-        }
-        .rtc-grid-1 { grid-template-columns: 1fr; }
-        .rtc-grid-2 { grid-template-columns: repeat(2, 1fr); }
-        .rtc-grid-4 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
-        .rtc-grid-6 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
-
-        .rtc-tile {
-          position: relative;
-          background: var(--bg-elevated);
-          border: 0.0625rem solid var(--border);
-          border-radius: var(--radius-md);
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          animation: slideUp 0.3s ease both;
-        }
-        .rtc-tile-local { border-color: var(--primary); border-width: 0.125rem; }
-        .rtc-video {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          border-radius: inherit;
-        }
-        .rtc-tile-local .rtc-video { transform: scaleX(-1); }
-        .rtc-tile-screen .rtc-video { object-fit: contain; transform: none; }
-        .rtc-video-hidden { display: none; }
-
-        .rtc-tile-avatar {
-          width: 4rem;
-          height: 4rem;
-          border-radius: 50%;
-          background: var(--primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: white;
-        }
-        .rtc-avatar-img {
-          width: 100%;
-          height: 100%;
-          border-radius: 50%;
-          object-fit: cover;
-        }
-
-        .rtc-tile-nameplate {
-          position: absolute;
-          bottom: 0.5rem;
-          left: 0.5rem;
-          display: flex;
-          align-items: center;
-          gap: 0.375rem;
-          background: rgba(0, 0, 0, 0.55);
-          backdrop-filter: blur(4px);
-          padding: 0.25rem 0.625rem;
-          border-radius: 0.375rem;
-          max-width: calc(100% - 1rem);
-        }
-        .rtc-name-text {
-          font-size: 0.75rem;
-          font-weight: 500;
-          color: #fff;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .rtc-mute-indicator {
-          display: flex;
-          align-items: center;
-          color: #E8705F;
-          flex-shrink: 0;
-        }
-
-        /* ── Toolbar ── */
-        .rtc-toolbar {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          padding: 0.75rem 1rem;
-          border-top: 0.0625rem solid var(--border);
-        }
-        .rtc-toolbar-btn {
-          width: 2.75rem;
-          height: 2.75rem;
-          border-radius: 50%;
-          border: 0.0625rem solid var(--border);
-          background: var(--bg-card);
-          color: var(--text-primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.15s;
-        }
-        .rtc-toolbar-btn:hover {
-          background: var(--bg-hover);
-          border-color: var(--border-hover);
-          transform: scale(1.05);
-        }
-        .rtc-btn-off {
-          background: var(--bg-elevated);
-          color: #E8705F;
-          border-color: #E8705F40;
-        }
-        .rtc-btn-off:hover { background: #E8705F20; }
-        .rtc-btn-active {
-          background: var(--primary);
-          color: white;
-          border-color: var(--primary);
-        }
-        .rtc-btn-active:hover { opacity: 0.9; }
-        .rtc-btn-hangup {
-          background: #D14D41;
-          color: white;
-          border-color: #D14D41;
-        }
-        .rtc-btn-hangup:hover {
-          background: #AF3029;
-          border-color: #AF3029;
-        }
-
-        /* ── Join prompt ── */
-        .rtc-join-prompt {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          gap: 0.75rem;
-          text-align: center;
-          color: var(--text-secondary);
-        }
-        .rtc-join-icon {
-          width: 5rem;
-          height: 5rem;
-          border-radius: 50%;
-          background: var(--bg-elevated);
-          border: 0.0625rem solid var(--border);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--primary);
-          margin-bottom: 0.5rem;
-        }
-        .rtc-join-prompt h3 {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: var(--text-primary);
-          margin: 0;
-        }
-        .rtc-join-prompt p {
-          font-size: 0.875rem;
-          color: var(--text-muted);
-          margin: 0;
-          max-width: 22rem;
-        }
-        .rtc-join-btn {
-          margin-top: 0.75rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.75rem 1.75rem !important;
-          font-size: 0.9375rem !important;
-        }
-
-        .rtc-offline-notice {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          color: var(--text-muted);
         }
       `}</style>
     </div>

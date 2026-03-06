@@ -1,15 +1,12 @@
 const express = require('express');
 const http = require('http');
-const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
+const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const multer = require('multer');
 const { Server } = require('socket.io');
 const nodemailer = require('nodemailer');
-const WebSocket = require('ws');
 
 dotenv.config();
 
@@ -20,8 +17,6 @@ let Meeting = null;
 let Poll = null;
 let Notification = null;
 let RSVP = null;
-let Transcript = null;
-let Note = null;
 try {
     const mongoose = require('mongoose');
     mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mcms_db')
@@ -35,8 +30,6 @@ try {
     Poll = require('./models/Poll');
     Notification = require('./models/Notification');
     RSVP = require('./models/RSVP');
-    Transcript = require('./models/Transcript');
-    Note = require('./models/Note');
 } catch (e) {
     console.log('⚠️  Mongoose not found — using in-memory store');
 }
@@ -50,39 +43,8 @@ const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET || 'mcms_super_secret_key';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
-app.use(cors({
-    origin: [CLIENT_URL, 'https://anupchavan.com', 'https://www.anupchavan.com'].filter(Boolean),
-    credentials: true,
-}));
+app.use(cors());
 app.use(express.json());
-
-const uploadsDir = path.join(__dirname, 'uploads', 'avatars');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-const recordingsDir = path.join(__dirname, 'uploads', 'recordings');
-if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true });
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
-if (fs.existsSync(clientDist)) {
-    app.use('/mcms', express.static(clientDist, { index: false }));
-    app.get(/^\/mcms\/?.*$/, (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
-}
-
-const avatarStorage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `${req.user.id}-${Date.now()}${ext}`);
-    },
-});
-const avatarUpload = multer({
-    storage: avatarStorage,
-    limits: { fileSize: 2 * 1024 * 1024 },
-    fileFilter: (_req, file, cb) => {
-        if (/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) cb(null, true);
-        else cb(new Error('Only image files are allowed'));
-    },
-});
 
 // ── Socket.io Setup ──────────────────────────────────────────
 const io = new Server(server, {
@@ -103,376 +65,224 @@ io.use((socket, next) => {
     }
 });
 
-// ── Sarvam AI Transcription State ─────────────────────────────
-const SARVAM_API_KEY = process.env.SARVAM_API_KEY;
+// ── WebRTC Rooms & Transcription State ──────────────────────
+// meetingId -> Map<socketId, { userId, name, profileImage }>
+const meetingRooms = new Map();
+// meetingId -> { active, speakers: Map<socketId, { ws, buffer, name, image }> }
+const transcriptionSessions = new Map();
 
-// Per-meeting state
-const meetingTranscriptionState = new Map(); // meetingId -> { startTime, speakers: Map<speakerKey, SpeakerState> }
-const meetingAudioBuffers = new Map();
+let Transcript = null;
+try { Transcript = require('./models/Transcript'); } catch {}
 
-// WebRTC peer tracking: meetingId -> Map<socketId, { userId, name, image }>
-const meetingPeers = new Map();
+const WebSocket = require('ws');
 
-const PARA_SILENCE_GAP_MS = 3000;
-const PARA_MAX_CHARS = 500;
+function createSarvamWS(meetingId, socketId, speakerName, speakerImage, broadcastSegment) {
+    const apiKey = process.env.SARVAM_API_KEY;
+    if (!apiKey) {
+        console.log('⚠️  SARVAM_API_KEY not set — transcription disabled');
+        return null;
+    }
 
-function speakerKey(meetingId, userId) { return `${meetingId}::${userId}`; }
-
-function getSpeakerState(meetingId, userId) {
-    const meeting = meetingTranscriptionState.get(meetingId);
-    if (!meeting) return null;
-    return meeting.speakers.get(userId) || null;
-}
-
-function openSpeakerSarvamWS(meetingId, userId, speakerName, speakerImage) {
-    const meeting = meetingTranscriptionState.get(meetingId);
-    if (!meeting) return null;
-
-    const params = new URLSearchParams({
-        model: 'saaras:v3',
-        mode: 'transcribe',
-        sample_rate: '16000',
-        'language-code': 'unknown',
-    });
-    const url = `wss://api.sarvam.ai/speech-to-text/ws?${params}`;
-    const ws = new WebSocket(url, {
-        headers: { 'Api-Subscription-Key': SARVAM_API_KEY },
-    });
-
-    const state = {
-        ws,
-        speakerName,
-        speakerImage,
-        ready: false,
-        pendingChunks: [],
-        paraBuffer: { fragments: [], languageCode: null, startTime: null, firstTimestamp: null, flushTimer: null },
-    };
+    const url = 'wss://api.sarvam.ai/speech-to-text-translate/ws?model=saaras:v3&mode=transcribe&sample_rate=16000&input_audio_codec=pcm_s16le';
+    let ws;
+    try {
+        ws = new WebSocket(url, { headers: { 'Api-Subscription-Key': apiKey } });
+    } catch (err) {
+        console.error('Sarvam WS creation failed:', err.message);
+        return null;
+    }
 
     ws.on('open', () => {
-        console.log(`🎙️  Sarvam WS opened for ${speakerName} in meeting ${meetingId}`);
-        state.ready = true;
-        for (const chunk of state.pendingChunks) {
-            if (ws.readyState === WebSocket.OPEN) ws.send(chunk);
-        }
-        state.pendingChunks = [];
+        console.log(`🎙️  Sarvam WS open for [${speakerName}] in meeting ${meetingId}`);
     });
 
-    ws.on('message', async (rawMsg) => {
+    ws.on('message', (raw) => {
         try {
-            const msg = JSON.parse(rawMsg.toString());
+            const msg = JSON.parse(raw.toString());
             if (msg.type === 'data' && msg.data?.transcript) {
-                const transcript = msg.data.transcript.trim();
-                if (!transcript) return;
-                await handleSpeakerFragment(meetingId, userId, transcript, msg.data);
+                const text = msg.data.transcript.trim();
+                if (!text) return;
+
+                const now = new Date();
+                const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
+                const segment = {
+                    id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    meetingId,
+                    speaker: speakerName,
+                    speakerImage,
+                    text,
+                    timestamp,
+                    languageCode: msg.data.language_code || null,
+                    sentiment: null,
+                };
+
+                broadcastSegment(segment);
+
+                if (usingMongo && Transcript) {
+                    Transcript.create({
+                        meetingId,
+                        speaker: speakerName,
+                        speakerImage,
+                        text,
+                        timestamp,
+                        languageCode: msg.data.language_code || null,
+                    }).catch(() => {});
+                }
+            } else if (msg.type === 'error') {
+                console.error(`Sarvam error [${speakerName}]:`, msg.data?.error || msg);
             }
-        } catch (err) {
-            console.error(`Sarvam WS message error (${speakerName}):`, err.message);
-        }
+        } catch {}
     });
 
-    ws.on('error', (err) => {
-        console.error(`Sarvam WS error (${speakerName}):`, err.message);
-    });
+    ws.on('error', (err) => console.error(`Sarvam WS error [${speakerName}]:`, err.message));
+    ws.on('close', (code, reason) => console.log(`Sarvam WS closed for [${speakerName}] code=${code} reason=${reason}`));
 
-    ws.on('close', () => {
-        console.log(`🎙️  Sarvam WS closed for ${speakerName} in meeting ${meetingId}`);
-    });
-
-    meeting.speakers.set(userId, state);
-    return state;
-}
-
-async function handleSpeakerFragment(meetingId, userId, transcript, sarvamData) {
-    const meeting = meetingTranscriptionState.get(meetingId);
-    const speaker = meeting?.speakers.get(userId);
-    if (!meeting || !speaker) return;
-
-    const elapsedSec = (Date.now() - meeting.startTime) / 1000;
-    const now = new Date();
-    const timestamp = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-    const langCode = sarvamData.language_code || null;
-
-    const buf = speaker.paraBuffer;
-    const langChanged = buf.languageCode && langCode && buf.languageCode !== langCode;
-    const totalChars = buf.fragments.join(' ').length;
-    const overMaxLen = totalChars + transcript.length > PARA_MAX_CHARS;
-
-    if (buf.fragments.length > 0 && (langChanged || overMaxLen)) {
-        await flushSpeakerParagraph(meetingId, userId);
-    }
-
-    if (buf.fragments.length === 0) {
-        buf.languageCode = langCode;
-        buf.startTime = sarvamData.metrics?.audio_duration ? elapsedSec - sarvamData.metrics.audio_duration : elapsedSec;
-        buf.firstTimestamp = timestamp;
-    }
-    buf.fragments.push(transcript);
-
-    if (buf.flushTimer) clearTimeout(buf.flushTimer);
-    buf.flushTimer = setTimeout(() => flushSpeakerParagraph(meetingId, userId), PARA_SILENCE_GAP_MS);
-}
-
-async function flushSpeakerParagraph(meetingId, userId) {
-    const meeting = meetingTranscriptionState.get(meetingId);
-    const speaker = meeting?.speakers.get(userId);
-    if (!speaker) return;
-
-    const buf = speaker.paraBuffer;
-    if (buf.fragments.length === 0) return;
-
-    const text = buf.fragments.join(' ').replace(/\s+/g, ' ').trim();
-    if (!text) { buf.fragments = []; return; }
-
-    const elapsedSec = (Date.now() - meeting.startTime) / 1000;
-
-    const segment = {
-        meetingId,
-        speaker: speaker.speakerName,
-        speakerImage: speaker.speakerImage,
-        text,
-        timestamp: buf.firstTimestamp,
-        startTime: buf.startTime,
-        endTime: elapsedSec,
-        sentiment: null,
-        languageCode: buf.languageCode,
-    };
-
-    if (usingMongo && Transcript) {
-        const doc = await Transcript.create(segment);
-        segment._id = doc._id;
-        segment.id = doc._id.toString();
-    } else {
-        segment.id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    }
-
-    io.to(`meeting:${meetingId}`).emit('transcript_update', segment);
-
-    buf.fragments = [];
-    buf.languageCode = null;
-    buf.startTime = null;
-    buf.firstTimestamp = null;
-    if (buf.flushTimer) { clearTimeout(buf.flushTimer); buf.flushTimer = null; }
-}
-
-async function closeSpeakerSarvam(meetingId, userId) {
-    const meeting = meetingTranscriptionState.get(meetingId);
-    const speaker = meeting?.speakers.get(userId);
-    if (!speaker) return;
-
-    await flushSpeakerParagraph(meetingId, userId);
-    if (speaker.paraBuffer.flushTimer) clearTimeout(speaker.paraBuffer.flushTimer);
-
-    const ws = speaker.ws;
-    try {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'flush' }));
-        }
-        setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
-        }, 2000);
-    } catch (err) {
-        console.error('Error closing speaker Sarvam WS:', err.message);
-    }
-    meeting.speakers.delete(userId);
-}
-
-async function closeAllSpeakerConnections(meetingId) {
-    const meeting = meetingTranscriptionState.get(meetingId);
-    if (!meeting) return;
-    const userIds = [...meeting.speakers.keys()];
-    for (const uid of userIds) {
-        await closeSpeakerSarvam(meetingId, uid);
-    }
-    meetingTranscriptionState.delete(meetingId);
-}
-
-function saveAudioBuffer(meetingId) {
-    const chunks = meetingAudioBuffers.get(meetingId);
-    if (!chunks || chunks.length === 0) return null;
-    const filePath = path.join(recordingsDir, `${meetingId}.wav`);
-    const combined = Buffer.concat(chunks);
-    fs.writeFileSync(filePath, combined);
-    meetingAudioBuffers.delete(meetingId);
-    return filePath;
+    return ws;
 }
 
 io.on('connection', (socket) => {
     connectedUsers.set(socket.userId, socket.id);
     socket.join(`user:${socket.userId}`);
 
-    socket.on('join_meeting', ({ meetingId }) => {
-        if (meetingId) {
-            const mid = String(meetingId);
-            socket.join(`meeting:${mid}`);
-            socket.currentMeetingId = mid;
+    // ── WebRTC Signaling ─────────────────────────────────────
+    socket.on('join_room', async ({ meetingId, name, profileImage }) => {
+        if (!meetingId) return;
+        socket.join(`meeting:${meetingId}`);
+
+        if (!meetingRooms.has(meetingId)) meetingRooms.set(meetingId, new Map());
+        const room = meetingRooms.get(meetingId);
+
+        const existingPeers = [];
+        for (const [sid, info] of room.entries()) {
+            existingPeers.push({ socketId: sid, userId: info.userId, name: info.name, profileImage: info.profileImage });
+        }
+
+        room.set(socket.id, { userId: socket.userId, name: name || 'User', profileImage: profileImage || null });
+
+        socket.emit('room_peers', { peers: existingPeers });
+
+        socket.to(`meeting:${meetingId}`).emit('peer_joined', {
+            socketId: socket.id,
+            userId: socket.userId,
+            name: name || 'User',
+            profileImage: profileImage || null,
+        });
+
+        // If transcription is active for this meeting, set up a Sarvam stream for the new joiner
+        const session = transcriptionSessions.get(meetingId);
+        if (session && session.active) {
+            const broadcastSegment = (segment) => {
+                io.to(`meeting:${meetingId}`).emit('transcript_update', segment);
+            };
+            const ws = createSarvamWS(meetingId, socket.id, name || 'User', profileImage || null, broadcastSegment);
+            session.speakers.set(socket.id, { ws, name: name || 'User', image: profileImage || null });
+            socket.emit('transcription_started', { meetingId });
         }
     });
 
-    socket.on('leave_meeting', ({ meetingId }) => {
-        if (meetingId) {
-            socket.leave(`meeting:${String(meetingId)}`);
-            socket.currentMeetingId = null;
+    socket.on('signal', ({ to, signal }) => {
+        io.to(to).emit('signal', { from: socket.id, signal });
+    });
+
+    socket.on('leave_room', ({ meetingId }) => {
+        if (!meetingId) return;
+        socket.leave(`meeting:${meetingId}`);
+        const room = meetingRooms.get(meetingId);
+        if (room) {
+            room.delete(socket.id);
+            if (room.size === 0) meetingRooms.delete(meetingId);
+        }
+        socket.to(`meeting:${meetingId}`).emit('peer_left', { socketId: socket.id });
+
+        const session = transcriptionSessions.get(meetingId);
+        if (session && session.speakers.has(socket.id)) {
+            const sp = session.speakers.get(socket.id);
+            if (sp.ws && sp.ws.readyState === WebSocket.OPEN) sp.ws.close();
+            session.speakers.delete(socket.id);
         }
     });
 
+    // ── Transcription Control ────────────────────────────────
     socket.on('start_transcription', ({ meetingId }) => {
         if (!meetingId) return;
-        const mid = String(meetingId);
-        if (!SARVAM_API_KEY) {
-            socket.emit('transcription_error', { message: 'Sarvam API key not configured' });
-            return;
-        }
-        if (meetingTranscriptionState.has(mid)) {
-            socket.emit('transcription_error', { message: 'Transcription already active for this meeting' });
-            return;
+        const room = meetingRooms.get(meetingId);
+        if (!room) return;
+
+        const broadcastSegment = (segment) => {
+            io.to(`meeting:${meetingId}`).emit('transcript_update', segment);
+        };
+
+        const speakers = new Map();
+        for (const [sid, info] of room.entries()) {
+            const ws = createSarvamWS(meetingId, sid, info.name, info.profileImage, broadcastSegment);
+            speakers.set(sid, { ws, name: info.name, image: info.profileImage });
         }
 
-        meetingTranscriptionState.set(mid, { startTime: Date.now(), speakers: new Map() });
-        meetingAudioBuffers.set(mid, []);
-
-        io.to(`meeting:${mid}`).emit('transcription_started', { meetingId: mid });
-        console.log(`🎙️  Transcription started for meeting ${mid} by user ${socket.userId}`);
+        transcriptionSessions.set(meetingId, { active: true, speakers });
+        io.to(`meeting:${meetingId}`).emit('transcription_started', { meetingId });
     });
 
-    socket.on('join_transcription', async ({ meetingId, speakerName, speakerImage }) => {
+    socket.on('stop_transcription', ({ meetingId }) => {
         if (!meetingId) return;
-        const mid = String(meetingId);
-        const meeting = meetingTranscriptionState.get(mid);
-        if (!meeting) return;
-        if (meeting.speakers.has(socket.userId)) {
-            socket.emit('transcription_ready', { meetingId: mid });
-            return;
+        const session = transcriptionSessions.get(meetingId);
+        if (session) {
+            for (const [, sp] of session.speakers) {
+                if (sp.ws && sp.ws.readyState === WebSocket.OPEN) sp.ws.close();
+            }
+            session.active = false;
+            session.speakers.clear();
         }
-
-        const name = speakerName || 'Speaker';
-        const image = speakerImage || null;
-        if (!image && usingMongo && User) {
-            try {
-                const u = await User.findById(socket.userId).select('name profileImage');
-                if (u) {
-                    openSpeakerSarvamWS(mid, socket.userId, u.name || name, u.profileImage || image);
-                    socket.emit('transcription_ready', { meetingId: mid });
-                    console.log(`🎙️  ${u.name} joined transcription for meeting ${mid}`);
-                    return;
-                }
-            } catch (_) {}
-        }
-        openSpeakerSarvamWS(mid, socket.userId, name, image);
-        socket.emit('transcription_ready', { meetingId: mid });
-        console.log(`🎙️  ${name} joined transcription for meeting ${mid}`);
+        transcriptionSessions.delete(meetingId);
+        io.to(`meeting:${meetingId}`).emit('transcription_stopped', { meetingId });
     });
 
     socket.on('audio_chunk', ({ meetingId, data }) => {
-        if (!meetingId || !data) return;
-        const mid = String(meetingId);
+        const session = transcriptionSessions.get(meetingId);
+        if (!session || !session.active) return;
+        const speaker = session.speakers.get(socket.id);
+        if (!speaker || !speaker.ws || speaker.ws.readyState !== WebSocket.OPEN) return;
 
-        const buffer = Buffer.from(data, 'base64');
-        const chunks = meetingAudioBuffers.get(mid);
-        if (chunks) chunks.push(buffer);
-
-        const speaker = getSpeakerState(mid, socket.userId);
-        if (!speaker) return;
-
-        const payload = JSON.stringify({
-            audio: { data, sample_rate: '16000', encoding: 'audio/wav' },
-        });
-
-        if (speaker.ready && speaker.ws.readyState === WebSocket.OPEN) {
-            speaker.ws.send(payload);
-        } else {
-            speaker.pendingChunks.push(payload);
-        }
+        try {
+            speaker.ws.send(JSON.stringify({
+                audio: { data, sample_rate: '16000', encoding: 'audio/wav' },
+            }));
+        } catch {}
     });
 
-    socket.on('leave_transcription', async ({ meetingId }) => {
-        if (meetingId) await closeSpeakerSarvam(String(meetingId), socket.userId);
+    // ── Meeting room join/leave for transcript sync ──────────
+    socket.on('join_meeting', ({ meetingId }) => {
+        if (meetingId) socket.join(`meeting:${meetingId}`);
     });
 
-    socket.on('stop_transcription', async ({ meetingId }) => {
-        if (!meetingId) return;
-        const mid = String(meetingId);
-        await closeAllSpeakerConnections(mid);
-        const audioPath = saveAudioBuffer(mid);
-
-        io.to(`meeting:${mid}`).emit('transcription_stopped', {
-            meetingId: mid,
-            hasRecording: !!audioPath,
-        });
-        console.log(`🎙️  Transcription stopped for meeting ${mid}`);
-    });
-
-    // ── WebRTC Signaling ──────────────────────────────────────
-    socket.on('webrtc_join', async ({ meetingId, name, image }) => {
-        if (!meetingId) return;
-        const mid = String(meetingId);
-        const roomId = `meeting:${mid}`;
-        socket.join(roomId);
-
-        if (!meetingPeers.has(mid)) meetingPeers.set(mid, new Map());
-        const room = meetingPeers.get(mid);
-
-        let peerName = name || 'User';
-        let peerImage = image || null;
-        if (usingMongo && User && (!name || !image)) {
-            try {
-                const u = await User.findById(socket.userId).select('name profileImage');
-                if (u) { peerName = u.name || peerName; peerImage = u.profileImage || peerImage; }
-            } catch (_) {}
-        }
-
-        const existingPeers = [];
-        for (const [sid, info] of room) {
-            existingPeers.push({ socketId: sid, userId: info.userId, name: info.name, image: info.image });
-        }
-        socket.emit('webrtc_peers', { peers: existingPeers });
-
-        room.set(socket.id, { userId: socket.userId, name: peerName, image: peerImage });
-
-        socket.to(roomId).emit('webrtc_peer_joined', {
-            socketId: socket.id,
-            userId: socket.userId,
-            name: peerName,
-            image: peerImage,
-        });
-    });
-
-    socket.on('webrtc_offer', ({ to, sdp }) => {
-        io.to(to).emit('webrtc_offer', { from: socket.id, sdp });
-    });
-
-    socket.on('webrtc_answer', ({ to, sdp }) => {
-        io.to(to).emit('webrtc_answer', { from: socket.id, sdp });
-    });
-
-    socket.on('webrtc_ice_candidate', ({ to, candidate }) => {
-        io.to(to).emit('webrtc_ice_candidate', { from: socket.id, candidate });
-    });
-
-    socket.on('webrtc_toggle', ({ meetingId, kind, enabled }) => {
-        if (!meetingId) return;
-        socket.to(`meeting:${String(meetingId)}`).emit('webrtc_peer_toggle', {
-            socketId: socket.id, kind, enabled,
-        });
-    });
-
-    socket.on('webrtc_leave', ({ meetingId }) => {
-        if (!meetingId) return;
-        const mid = String(meetingId);
-        const room = meetingPeers.get(mid);
-        if (room) {
-            room.delete(socket.id);
-            if (room.size === 0) meetingPeers.delete(mid);
-        }
-        socket.to(`meeting:${mid}`).emit('webrtc_peer_left', { socketId: socket.id });
+    socket.on('leave_meeting', ({ meetingId }) => {
+        if (meetingId) socket.leave(`meeting:${meetingId}`);
     });
 
     socket.on('disconnect', () => {
         connectedUsers.delete(socket.userId);
-        for (const [meetingId, room] of meetingPeers) {
+
+        for (const [meetingId, room] of meetingRooms.entries()) {
             if (room.has(socket.id)) {
                 room.delete(socket.id);
-                io.to(`meeting:${meetingId}`).emit('webrtc_peer_left', { socketId: socket.id });
-                if (room.size === 0) meetingPeers.delete(meetingId);
+                io.to(`meeting:${meetingId}`).emit('peer_left', { socketId: socket.id });
+
+                const session = transcriptionSessions.get(meetingId);
+                if (session && session.speakers.has(socket.id)) {
+                    const sp = session.speakers.get(socket.id);
+                    if (sp.ws && sp.ws.readyState === WebSocket.OPEN) sp.ws.close();
+                    session.speakers.delete(socket.id);
+                }
+
+                if (room.size === 0) {
+                    meetingRooms.delete(meetingId);
+                    if (session) {
+                        for (const [, sp] of session.speakers) {
+                            if (sp.ws && sp.ws.readyState === WebSocket.OPEN) sp.ws.close();
+                        }
+                        transcriptionSessions.delete(meetingId);
+                    }
+                }
             }
         }
     });
@@ -530,9 +340,8 @@ async function sendRsvpEmail(meeting, user, slot) {
             `${baseUrl}/api/rsvp/${meeting._id}/respond?token=${token}&response=${response}`;
 
         const dateStr = slot ? `${slot.date} at ${slot.time}` : `${meeting.date} at ${meeting.time}`;
-        const meetingLink = `${CLIENT_URL}/?meeting=${meeting._id}`;
-        const meetingLinkSection = meeting.modality !== 'Offline'
-            ? `<p style="margin:16px 0"><strong>Meeting Link:</strong> <a href="${meetingLink}" style="color:#6366f1">${meetingLink}</a></p>`
+        const jitsiSection = meeting.jitsiUrl
+            ? `<p style="margin:16px 0"><strong>Meeting Link:</strong> <a href="${meeting.jitsiUrl}" style="color:#6366f1">${meeting.jitsiUrl}</a></p>`
             : '';
         const locationSection = meeting.location
             ? `<p><strong>Location:</strong> ${meeting.location}</p>`
@@ -551,7 +360,7 @@ async function sendRsvpEmail(meeting, user, slot) {
     <p><strong>Date/Time:</strong> ${dateStr}</p>
     <p><strong>Type:</strong> ${meeting.modality}</p>
     ${locationSection}
-    ${meetingLinkSection}
+    ${jitsiSection}
     <p style="margin:24px 0 12px;font-weight:600">Will you attend?</p>
     <div style="display:flex;gap:12px">
       <a href="${makeLink('yes')}" style="display:inline-block;padding:10px 28px;background:#22c55e;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">Yes</a>
@@ -577,7 +386,9 @@ async function sendRsvpEmail(meeting, user, slot) {
 }
 
 // ─── Auth Helpers ─────────────────────────────────────────────
-const generateToken = (id) => jwt.sign({ id }, JWT_SECRET, { expiresIn: '30d' });
+const generateToken = (id) => {
+    return jwt.sign({ id }, JWT_SECRET, { expiresIn: '30d' });
+};
 const { protect } = require('./middleware/auth');
 
 // ─── REGISTER ─────────────────────────────────────────────────
@@ -592,7 +403,7 @@ app.post('/api/auth/register', async (req, res) => {
             let existing = await User.findOne({ email });
             if (existing) return res.status(400).json({ message: 'User already exists' });
             const user = await User.create({ name, email, password });
-            return res.status(201).json({ _id: user._id, name: user.name, email: user.email, profileImage: user.profileImage, isAdmin: user.isAdmin, token: generateToken(user._id) });
+            return res.status(201).json({ _id: user._id, name: user.name, email: user.email, token: generateToken(user._id) });
         } else {
             const existing = inMemoryUsers.find(u => u.email === email.toLowerCase());
             if (existing) return res.status(400).json({ message: 'User already exists' });
@@ -622,7 +433,7 @@ app.post('/api/auth/login', async (req, res) => {
             if (!user) return res.status(401).json({ message: 'Invalid email or password' });
             const isMatch = await user.matchPassword(password);
             if (!isMatch) return res.status(401).json({ message: 'Invalid email or password' });
-            return res.json({ _id: user._id, name: user.name, email: user.email, profileImage: user.profileImage, isAdmin: user.isAdmin, token: generateToken(user._id) });
+            return res.json({ _id: user._id, name: user.name, email: user.email, token: generateToken(user._id) });
         } else {
             const user = inMemoryUsers.find(u => u.email === email.toLowerCase());
             if (!user) return res.status(401).json({ message: 'Invalid email or password' });
@@ -654,173 +465,25 @@ app.get('/api/auth/me', protect, async (req, res) => {
 app.get('/api/users/search', protect, async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
+        if (!q || q.length < 2) return res.json([]);
 
         if (usingMongo && User) {
-            let filter = { _id: { $ne: req.user.id } };
-            if (q.length >= 1) {
-                const regex = new RegExp(q, 'i');
-                filter = { $and: [filter, { $or: [{ name: regex }, { email: regex }] }] };
-            }
-            const users = await User.find(filter).select('name email profileImage').limit(10);
+            const regex = new RegExp(q, 'i');
+            const users = await User.find({
+                $and: [
+                    { _id: { $ne: req.user.id } },
+                    { $or: [{ name: regex }, { email: regex }] }
+                ]
+            }).select('name email').limit(10);
             return res.json(users);
         }
 
-        if (!q) {
-            const results = inMemoryUsers
-                .filter(u => u._id !== req.user.id)
-                .slice(0, 10)
-                .map(u => ({ _id: u._id, name: u.name, email: u.email, profileImage: u.profileImage || null }));
-            return res.json(results);
-        }
         const lower = q.toLowerCase();
         const results = inMemoryUsers
             .filter(u => u._id !== req.user.id && (u.name.toLowerCase().includes(lower) || u.email.includes(lower)))
             .slice(0, 10)
-            .map(u => ({ _id: u._id, name: u.name, email: u.email, profileImage: u.profileImage || null }));
+            .map(u => ({ _id: u._id, name: u.name, email: u.email }));
         res.json(results);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-// ─── PROFILE ROUTES ───────────────────────────────────────────
-app.put('/api/profile/name', protect, async (req, res) => {
-    try {
-        const { name } = req.body;
-        if (!name || !name.trim()) return res.status(400).json({ message: 'Name is required' });
-
-        if (usingMongo && User) {
-            const user = await User.findByIdAndUpdate(req.user.id, { name: name.trim() }, { new: true }).select('-password');
-            return res.json({ name: user.name, email: user.email, profileImage: user.profileImage, isAdmin: user.isAdmin });
-        }
-        const user = inMemoryUsers.find(u => u._id === req.user.id);
-        if (user) user.name = name.trim();
-        res.json({ name: user.name, email: user.email });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-app.put('/api/profile/email', protect, async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email || !email.trim()) return res.status(400).json({ message: 'Email is required' });
-
-        if (usingMongo && User) {
-            const existing = await User.findOne({ email: email.toLowerCase(), _id: { $ne: req.user.id } });
-            if (existing) return res.status(400).json({ message: 'Email is already in use' });
-            const user = await User.findByIdAndUpdate(req.user.id, { email: email.toLowerCase().trim() }, { new: true }).select('-password');
-            return res.json({ name: user.name, email: user.email, profileImage: user.profileImage, isAdmin: user.isAdmin });
-        }
-        const existing = inMemoryUsers.find(u => u.email === email.toLowerCase() && u._id !== req.user.id);
-        if (existing) return res.status(400).json({ message: 'Email is already in use' });
-        const user = inMemoryUsers.find(u => u._id === req.user.id);
-        if (user) user.email = email.toLowerCase().trim();
-        res.json({ name: user.name, email: user.email });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-app.put('/api/profile/password', protect, async (req, res) => {
-    try {
-        const { currentPassword, newPassword } = req.body;
-        if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Both current and new passwords are required' });
-        if (newPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters' });
-
-        if (usingMongo && User) {
-            const user = await User.findById(req.user.id);
-            if (!user) return res.status(404).json({ message: 'User not found' });
-            const isMatch = await user.matchPassword(currentPassword);
-            if (!isMatch) return res.status(401).json({ message: 'Current password is incorrect' });
-            user.password = newPassword;
-            await user.save();
-            return res.json({ message: 'Password updated successfully' });
-        }
-        const user = inMemoryUsers.find(u => u._id === req.user.id);
-        if (!user) return res.status(404).json({ message: 'User not found' });
-        const isMatch = await bcrypt.compare(currentPassword, user.password);
-        if (!isMatch) return res.status(401).json({ message: 'Current password is incorrect' });
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(newPassword, salt);
-        res.json({ message: 'Password updated successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-app.post('/api/profile/avatar', protect, (req, res, next) => {
-    avatarUpload.single('avatar')(req, res, (err) => {
-        if (err) return res.status(400).json({ message: err.message });
-        next();
-    });
-}, async (req, res) => {
-    try {
-        if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-        const imageUrl = `/uploads/avatars/${req.file.filename}`;
-
-        if (usingMongo && User) {
-            const user = await User.findById(req.user.id);
-            if (user.profileImage) {
-                const oldPath = path.join(__dirname, user.profileImage);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            }
-            user.profileImage = imageUrl;
-            await user.save();
-            return res.json({ profileImage: imageUrl });
-        }
-        const user = inMemoryUsers.find(u => u._id === req.user.id);
-        if (user) user.profileImage = imageUrl;
-        res.json({ profileImage: imageUrl });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-app.delete('/api/profile/avatar', protect, async (req, res) => {
-    try {
-        if (usingMongo && User) {
-            const user = await User.findById(req.user.id);
-            if (user.profileImage) {
-                const oldPath = path.join(__dirname, user.profileImage);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            }
-            user.profileImage = null;
-            await user.save();
-            return res.json({ profileImage: null });
-        }
-        const user = inMemoryUsers.find(u => u._id === req.user.id);
-        if (user) user.profileImage = null;
-        res.json({ profileImage: null });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-app.delete('/api/profile/account', protect, async (req, res) => {
-    try {
-        const { password } = req.body;
-        if (!password) return res.status(400).json({ message: 'Password is required to delete account' });
-
-        if (usingMongo && User) {
-            const user = await User.findById(req.user.id);
-            if (!user) return res.status(404).json({ message: 'User not found' });
-            const isMatch = await user.matchPassword(password);
-            if (!isMatch) return res.status(401).json({ message: 'Incorrect password' });
-
-            if (user.profileImage) {
-                const oldPath = path.join(__dirname, user.profileImage);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            }
-            await User.findByIdAndDelete(req.user.id);
-            return res.json({ message: 'Account deleted successfully' });
-        }
-        const idx = inMemoryUsers.findIndex(u => u._id === req.user.id);
-        if (idx === -1) return res.status(404).json({ message: 'User not found' });
-        const isMatch = await bcrypt.compare(password, inMemoryUsers[idx].password);
-        if (!isMatch) return res.status(401).json({ message: 'Incorrect password' });
-        inMemoryUsers.splice(idx, 1);
-        res.json({ message: 'Account deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
@@ -832,11 +495,13 @@ const meetings = [
         id: 'mtg-001', title: 'Sprint Planning — Q1 Review', modality: 'Online',
         date: '2026-03-05', time: '10:00 AM', host: 'Dr. Sharma',
         participants: ['Ravi K.', 'Ananya P.', 'Kiran M.', 'Priya S.'], status: 'scheduled',
+        jitsiUrl: 'https://meet.jit.si/mcms-sprint-planning',
     },
     {
         id: 'mtg-002', title: 'CS301 — Data Structures Lecture', modality: 'Hybrid',
         date: '2026-03-06', time: '2:00 PM', host: 'Prof. Reddy',
         participants: ['60 students'], status: 'scheduled',
+        jitsiUrl: 'https://meet.jit.si/mcms-cs301',
     },
     {
         id: 'mtg-003', title: 'Frontend Candidate Evaluation', modality: 'Online',
@@ -887,7 +552,7 @@ const dashboardStats = {
 app.get('/api/meetings', protect, async (req, res) => {
     try {
         if (usingMongo && Meeting) {
-            const dbMeetings = await Meeting.find({}).sort({ createdAt: -1 }).populate('participants', 'name email profileImage');
+            const dbMeetings = await Meeting.find({}).sort({ createdAt: -1 }).populate('participants', 'name email');
             const formatted = dbMeetings.map(m => ({
                 id: m._id,
                 title: m.title,
@@ -899,6 +564,8 @@ app.get('/api/meetings', protect, async (req, res) => {
                 hostId: m.hostId,
                 participants: m.participants,
                 status: m.status,
+                jitsiUrl: m.jitsiUrl,
+                jitsiRoomName: m.jitsiRoomName,
                 pollId: m.pollId,
             }));
             return res.json([...formatted, ...meetings]);
@@ -912,6 +579,11 @@ app.get('/api/meetings', protect, async (req, res) => {
 app.post('/api/meetings', protect, async (req, res) => {
     try {
         const { title, modality, timeSlots, location, participants } = req.body;
+
+        const jitsiRoomName = modality !== 'Offline'
+            ? `MCMS-${req.user.id.toString().substring(req.user.id.toString().length - 6)}-${Date.now()}`
+            : null;
+        const jitsiUrl = jitsiRoomName ? `https://meet.jit.si/${jitsiRoomName}` : null;
 
         let hostName = 'You';
         if (usingMongo && User) {
@@ -932,6 +604,8 @@ app.post('/api/meetings', protect, async (req, res) => {
                 confirmedTime: isSingleSlot ? timeSlots[0].time : null,
                 host: hostName,
                 hostId: req.user.id,
+                jitsiUrl,
+                jitsiRoomName,
                 participants: participants || [],
                 status: isSingleSlot ? 'scheduled' : 'pending_poll',
             });
@@ -990,7 +664,7 @@ app.post('/api/meetings', protect, async (req, res) => {
                 }
             }
 
-            const populated = await Meeting.findById(newMeeting._id).populate('participants', 'name email profileImage');
+            const populated = await Meeting.findById(newMeeting._id).populate('participants', 'name email');
 
             return res.status(201).json({
                 id: populated._id,
@@ -1003,6 +677,8 @@ app.post('/api/meetings', protect, async (req, res) => {
                 hostId: populated.hostId,
                 participants: populated.participants,
                 status: populated.status,
+                jitsiUrl: populated.jitsiUrl,
+                jitsiRoomName: populated.jitsiRoomName,
                 pollId: populated.pollId,
                 poll: pollData,
             });
@@ -1015,6 +691,7 @@ app.post('/api/meetings', protect, async (req, res) => {
             date: slot?.date, time: slot?.time, location,
             host: hostName, participants: participants || [],
             status: isSingleSlot ? 'scheduled' : 'pending_poll',
+            jitsiUrl, jitsiRoomName
         };
         meetings.push(newMeeting);
         res.status(201).json(newMeeting);
@@ -1031,8 +708,8 @@ app.get('/api/polls/:meetingId', protect, async (req, res) => {
         const poll = await Poll.findOne({ meetingId: req.params.meetingId });
         if (!poll) return res.status(404).json({ message: 'Poll not found' });
 
-        const meeting = await Meeting.findById(req.params.meetingId).select('title modality');
-        res.json({ ...poll.toObject(), meetingId: req.params.meetingId, meetingTitle: meeting?.title, modality: meeting?.modality });
+        const meeting = await Meeting.findById(req.params.meetingId).select('title modality jitsiUrl');
+        res.json({ ...poll.toObject(), meetingTitle: meeting?.title, modality: meeting?.modality, jitsiUrl: meeting?.jitsiUrl });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
@@ -1145,6 +822,7 @@ app.post('/api/polls/:pollId/vote', protect, async (req, res) => {
                 id: meeting._id,
                 confirmedDate: meeting.confirmedDate,
                 confirmedTime: meeting.confirmedTime,
+                jitsiUrl: meeting.jitsiUrl,
             } : null,
         });
     } catch (error) {
@@ -1264,114 +942,29 @@ function rsvpPage(message, meetingTitle, response) {
 </div></body></html>`;
 }
 
-// ─── TRANSCRIPTION ROUTES ─────────────────────────────────────
+// ─── Existing data routes ─────────────────────────────────────
+app.get('/api/agenda/:meetingId', protect, (req, res) => res.json(agendas[req.params.meetingId] || []));
 app.get('/api/transcript/:meetingId', protect, async (req, res) => {
     try {
         if (usingMongo && Transcript) {
-            const docs = await Transcript.find({ meetingId: req.params.meetingId })
-                .sort({ startTime: 1, createdAt: 1 });
-            const formatted = docs.map(d => ({
-                id: d._id,
-                speaker: d.speaker,
-                speakerImage: d.speakerImage || null,
-                text: d.text,
-                timestamp: d.timestamp,
-                startTime: d.startTime,
-                endTime: d.endTime,
-                sentiment: d.sentiment,
-                agendaId: d.agendaItemId,
-                languageCode: d.languageCode,
-            }));
-            return res.json(formatted);
+            const docs = await Transcript.find({ meetingId: req.params.meetingId }).sort({ createdAt: 1 });
+            if (docs.length) {
+                return res.json(docs.map(d => ({
+                    id: d._id,
+                    speaker: d.speaker,
+                    speakerImage: d.speakerImage,
+                    text: d.text,
+                    timestamp: d.timestamp,
+                    languageCode: d.languageCode,
+                    sentiment: d.sentiment,
+                })));
+            }
         }
         res.json(transcripts[req.params.meetingId] || []);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
 });
-
-app.post('/api/transcription/batch/:meetingId', protect, async (req, res) => {
-    try {
-        if (!SARVAM_API_KEY) {
-            return res.status(400).json({ message: 'Sarvam API key not configured' });
-        }
-        if (!usingMongo || !Transcript || !Meeting) {
-            return res.status(400).json({ message: 'Database required for batch transcription' });
-        }
-
-        const meeting = await Meeting.findById(req.params.meetingId);
-        if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
-        if (meeting.hostId.toString() !== req.user.id.toString()) {
-            return res.status(403).json({ message: 'Only the host can trigger batch transcription' });
-        }
-
-        const audioPath = path.join(recordingsDir, `${req.params.meetingId}.wav`);
-        if (!fs.existsSync(audioPath)) {
-            return res.status(404).json({ message: 'No recording found for this meeting' });
-        }
-
-        const { numSpeakers } = req.body;
-        const { SarvamAIClient } = require('sarvamai');
-        const sarvamClient = new SarvamAIClient({ apiSubscriptionKey: SARVAM_API_KEY });
-
-        const job = await sarvamClient.speechToTextJob.createJob({
-            model: 'saaras:v3',
-            mode: 'transcribe',
-            languageCode: 'unknown',
-            withDiarization: true,
-            numSpeakers: numSpeakers || 4,
-        });
-
-        await job.uploadFiles([audioPath]);
-        await job.start();
-        await job.waitUntilComplete();
-
-        const outputDir = path.join(recordingsDir, `batch-${req.params.meetingId}`);
-        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-        await job.downloadOutputs(outputDir);
-
-        const outputFiles = fs.readdirSync(outputDir).filter(f => f.endsWith('.json'));
-        if (outputFiles.length === 0) {
-            return res.status(500).json({ message: 'Batch processing returned no results' });
-        }
-
-        const result = JSON.parse(fs.readFileSync(path.join(outputDir, outputFiles[0]), 'utf-8'));
-
-        await Transcript.deleteMany({ meetingId: req.params.meetingId });
-
-        const entries = result.diarized_transcript?.entries || [];
-        const newDocs = [];
-        for (const entry of entries) {
-            const now = new Date();
-            const doc = await Transcript.create({
-                meetingId: req.params.meetingId,
-                speaker: `Speaker ${parseInt(entry.speaker_id, 10) + 1}`,
-                text: entry.transcript,
-                timestamp: new Date(entry.start_time_seconds * 1000).toISOString().slice(11, 19),
-                startTime: entry.start_time_seconds,
-                endTime: entry.end_time_seconds,
-                languageCode: result.language_code || null,
-            });
-            newDocs.push(doc);
-        }
-
-        io.to(`meeting:${req.params.meetingId}`).emit('transcript_replaced', {
-            meetingId: req.params.meetingId,
-        });
-
-        res.json({
-            message: 'Batch diarization complete',
-            totalSegments: newDocs.length,
-            speakers: [...new Set(entries.map(e => e.speaker_id))].length,
-        });
-    } catch (error) {
-        console.error('Batch transcription error:', error);
-        res.status(500).json({ message: 'Batch transcription failed', error: error.message });
-    }
-});
-
-// ─── Existing data routes ─────────────────────────────────────
-app.get('/api/agenda/:meetingId', protect, (req, res) => res.json(agendas[req.params.meetingId] || []));
 app.get('/api/action-items/:meetingId', protect, (req, res) => res.json(actionItems[req.params.meetingId] || []));
 
 app.get('/api/dashboard/stats', protect, (req, res) => {
@@ -1380,39 +973,11 @@ app.get('/api/dashboard/stats', protect, (req, res) => {
     res.json(stats);
 });
 
-// ─── NOTES ROUTES ─────────────────────────────────────────────
-const inMemoryNotes = {};
-
-app.get('/api/notes/:meetingId', protect, async (req, res) => {
-    try {
-        if (usingMongo && Note) {
-            const note = await Note.findOne({ meetingId: req.params.meetingId, userId: req.user.id });
-            return res.json(note ? { content: note.content } : { content: null });
-        }
-        const key = `${req.params.meetingId}::${req.user.id}`;
-        res.json({ content: inMemoryNotes[key] || null });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-});
-
-app.put('/api/notes/:meetingId', protect, async (req, res) => {
-    try {
-        const { content } = req.body;
-        if (usingMongo && Note) {
-            const note = await Note.findOneAndUpdate(
-                { meetingId: req.params.meetingId, userId: req.user.id },
-                { content },
-                { upsert: true, new: true }
-            );
-            return res.json({ content: note.content });
-        }
-        const key = `${req.params.meetingId}::${req.user.id}`;
-        inMemoryNotes[key] = content;
-        res.json({ content });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+// ─── Serve client build under /mcms (production) ─────────────
+const CLIENT_BUILD = path.join(__dirname, '..', 'client', 'dist');
+app.use('/mcms', express.static(CLIENT_BUILD));
+app.get('/mcms/*', (req, res) => {
+    res.sendFile(path.join(CLIENT_BUILD, 'index.html'));
 });
 
 // ─── Start Server ────────────────────────────────────────────
