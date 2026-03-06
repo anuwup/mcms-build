@@ -17,6 +17,36 @@ const SERVER_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5001").re
 
 function VideoTile({ stream, name, profileImage, muted, isSelf, speaking }) {
   const videoRef = useRef(null);
+  const [hasVideo, setHasVideo] = useState(false);
+
+  useEffect(() => {
+    if (!stream) { setHasVideo(false); return; }
+
+    const videoTracks = stream.getVideoTracks();
+    setHasVideo(videoTracks.some((t) => t.enabled && t.readyState === 'live'));
+
+    const onTrackChange = () => {
+      setHasVideo(stream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live'));
+    };
+
+    for (const track of videoTracks) {
+      track.addEventListener('unmute', onTrackChange);
+      track.addEventListener('mute', onTrackChange);
+      track.addEventListener('ended', onTrackChange);
+    }
+    stream.addEventListener('addtrack', onTrackChange);
+    stream.addEventListener('removetrack', onTrackChange);
+
+    return () => {
+      for (const track of videoTracks) {
+        track.removeEventListener('unmute', onTrackChange);
+        track.removeEventListener('mute', onTrackChange);
+        track.removeEventListener('ended', onTrackChange);
+      }
+      stream.removeEventListener('addtrack', onTrackChange);
+      stream.removeEventListener('removetrack', onTrackChange);
+    };
+  }, [stream]);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -24,35 +54,33 @@ function VideoTile({ stream, name, profileImage, muted, isSelf, speaking }) {
     }
   }, [stream]);
 
-  const hasVideo = stream?.getVideoTracks().some((t) => t.enabled && !t.muted);
   const initial = name?.charAt(0)?.toUpperCase() || "?";
 
   return (
     <div className={`video-tile ${speaking ? "speaking" : ""}`}>
-      {hasVideo ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={muted}
-          className="video-tile-video"
-          style={isSelf ? { transform: "scaleX(-1)" } : undefined}
-        />
-      ) : (
-        <>
-          <video ref={videoRef} autoPlay playsInline muted={muted} style={{ display: "none" }} />
-          <div className="video-tile-avatar">
-            {profileImage ? (
-              <img
-                src={`${SERVER_BASE}${profileImage}`}
-                alt=""
-                className="video-tile-avatar-img"
-              />
-            ) : (
-              <span>{initial}</span>
-            )}
-          </div>
-        </>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className="video-tile-video"
+        style={isSelf
+          ? { transform: "scaleX(-1)", display: hasVideo ? undefined : "none" }
+          : { display: hasVideo ? undefined : "none" }
+        }
+      />
+      {!hasVideo && (
+        <div className="video-tile-avatar">
+          {profileImage ? (
+            <img
+              src={`${SERVER_BASE}${profileImage}`}
+              alt=""
+              className="video-tile-avatar-img"
+            />
+          ) : (
+            <span>{initial}</span>
+          )}
+        </div>
       )}
       <div className="video-tile-name">
         {name || "User"}
@@ -75,13 +103,14 @@ export default function VideoArea({
   onToggleAgendaPanel,
   onToggleRightPanel,
 }) {
-  const { socket } = useSocket();
+  const { socket, connected } = useSocket();
   const {
     localStream,
     peers,
     audioEnabled,
     videoEnabled,
     screenStream,
+    mediaError,
     joinRoom,
     leaveRoom,
     toggleAudio,
@@ -150,6 +179,7 @@ export default function VideoArea({
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 className="video-meeting-title">{meetingTitle || "No Active Meeting"}</h2>
           <div className="video-meeting-meta">
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? '#22c55e' : '#ef4444', flexShrink: 0 }} title={connected ? 'Connected' : 'Disconnected'} />
             <Icon icon={UserGroupIcon} size={14} />
             <span>
               {hasJoined ? `${totalParticipants} in call` : `${participants?.length || 0} participants`}

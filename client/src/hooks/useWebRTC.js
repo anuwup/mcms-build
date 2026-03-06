@@ -11,6 +11,7 @@ export default function useWebRTC(socket, meetingId, currentUser) {
     const [audioEnabled, setAudioEnabled] = useState(true);
     const [videoEnabled, setVideoEnabled] = useState(true);
     const [screenStream, setScreenStream] = useState(null);
+    const [mediaError, setMediaError] = useState(null);
 
     const peersRef = useRef(new Map());
     const localStreamRef = useRef(null);
@@ -83,6 +84,7 @@ export default function useWebRTC(socket, meetingId, currentUser) {
 
     const joinRoom = useCallback(async () => {
         if (!socket || !meetingId || joinedRef.current) return;
+        setMediaError(null);
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -98,8 +100,9 @@ export default function useWebRTC(socket, meetingId, currentUser) {
                 name: currentUser?.name || 'User',
                 profileImage: currentUser?.profileImage || null,
             });
+            return true;
         } catch (err) {
-            // Camera/mic might fail — try audio-only
+            console.warn('Camera failed, trying audio-only:', err.name, err.message);
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: { echoCancellation: true, noiseSuppression: true },
@@ -108,6 +111,7 @@ export default function useWebRTC(socket, meetingId, currentUser) {
                 localStreamRef.current = stream;
                 setLocalStream(stream);
                 setVideoEnabled(false);
+                setMediaError('Camera unavailable — joined with audio only');
                 joinedRef.current = true;
 
                 socket.emit('join_room', {
@@ -115,8 +119,11 @@ export default function useWebRTC(socket, meetingId, currentUser) {
                     name: currentUser?.name || 'User',
                     profileImage: currentUser?.profileImage || null,
                 });
+                return true;
             } catch (audioErr) {
                 console.error('Cannot access media devices:', audioErr);
+                setMediaError(`Cannot access camera or microphone: ${audioErr.message}`);
+                return false;
             }
         }
     }, [socket, meetingId, currentUser]);
@@ -270,6 +277,7 @@ export default function useWebRTC(socket, meetingId, currentUser) {
         audioEnabled,
         videoEnabled,
         screenStream,
+        mediaError,
         joinRoom,
         leaveRoom,
         toggleAudio,
