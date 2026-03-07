@@ -230,6 +230,7 @@ app.use('/api/agenda', require('./routes/agenda')(deps));
 app.use('/api/action-items', require('./routes/actionItems')(deps));
 app.use('/api/attendance', require('./routes/attendance')(deps));
 app.use('/api/archive', require('./routes/archive')(deps));
+app.use('/api/search', require('./routes/search')(deps));
 app.use('/api/rubric', require('./routes/rubric')(deps));
 app.use('/api/pins', require('./routes/pins')(deps));
 app.use('/api/dashboard', require('./routes/dashboard')(deps));
