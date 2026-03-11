@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import Icon from './Icon';
 import {
     Mic01Icon, MicOff01Icon, Video01Icon, VideoOffIcon,
@@ -8,15 +8,30 @@ import {
 import QROverlay from './QROverlay';
 import { useSocket } from '../context/SocketContext';
 
-export default function HostControls({
+const HostControls = forwardRef(function HostControls({
     meetingId, meetingTitle,
     audioEnabled, videoEnabled, screenSharing,
     onToggleAudio, onToggleVideo, onToggleScreenShare,
     onLeave, hasJoined, onMeetingEnded,
-}) {
+}, ref) {
     const { socket } = useSocket();
     const [recording, setRecording] = useState(false);
     const [showQR, setShowQR] = useState(false);
+
+    useImperativeHandle(ref, () => ({
+        toggleRecording: () => {
+            if (!socket || !meetingId) return;
+            if (recording) socket.emit('stop_transcription', { meetingId });
+            else socket.emit('start_transcription', { meetingId });
+        },
+        showAttendance: () => setShowQR(true),
+        endMeeting: () => {
+            if (!socket || !meetingId) return;
+            if (recording) socket.emit('stop_transcription', { meetingId });
+            socket.emit('end_meeting', { meetingId });
+            onMeetingEnded?.();
+        },
+    }), [socket, meetingId, recording, onMeetingEnded]);
 
     useEffect(() => {
         if (!socket) return;
@@ -128,4 +143,6 @@ export default function HostControls({
             {showQR && <QROverlay onClose={() => setShowQR(false)} meetingTitle={meetingTitle} meetingId={meetingId} />}
         </>
     );
-}
+});
+
+export default HostControls;

@@ -49,6 +49,23 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Debug endpoint for persistence troubleshooting (Render + Atlas)
+app.get('/api/health', (req, res) => {
+    let readyState;
+    try {
+        const mongoose = require('mongoose');
+        readyState = mongoose.connection?.readyState; // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+    } catch {
+        readyState = null;
+    }
+    res.json({
+        mongoConnected: usingMongoFlag && readyState === 1,
+        mongoReadyState: readyState,
+        mongoUriSet: !!process.env.MONGO_URI,
+        nodeEnv: process.env.NODE_ENV || 'development',
+    });
+});
+
 // ── Socket.io Setup ──────────────────────────────────────────
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 const connectedUsers = new Map();

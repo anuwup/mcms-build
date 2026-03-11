@@ -1,5 +1,6 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import HostControls from "./HostControls";
+import useKeyboardShortcuts from "../hooks/useKeyboardShortcuts";
 import Icon from "./Icon";
 import {
   UserGroupIcon,
@@ -103,6 +104,7 @@ export default function VideoArea({
   onToggleAgendaPanel,
   onToggleRightPanel,
   onMeetingEnded,
+  onTriggerAddActionItem,
 }) {
   const { socket, connected } = useSocket();
   const {
@@ -123,6 +125,20 @@ export default function VideoArea({
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasJoined, setHasJoined] = useState(false);
+  const hostControlsRef = useRef(null);
+
+  const meetingShortcuts = useMemo(() => [
+    { key: 'm', handler: () => hasJoined && toggleAudio(), allowInInput: false },
+    { key: 'r', handler: () => hasJoined && hostControlsRef.current?.toggleRecording(), allowInInput: false },
+    { key: 'c', handler: () => hasJoined && toggleVideo(), allowInInput: false },
+    { key: 'a', shift: true, handler: () => hasJoined && hostControlsRef.current?.showAttendance(), allowInInput: false },
+    { key: 'a', handler: () => onTriggerAddActionItem?.(), allowInInput: false },
+    { key: 'Enter', handler: () => !hasJoined && handleJoin(), allowInInput: false },
+    { key: 'l', mod: true, shift: true, handler: () => hasJoined && handleLeave(), allowInInput: false },
+    { key: 'e', mod: true, shift: true, handler: () => hasJoined && hostControlsRef.current?.endMeeting(), allowInInput: false },
+  ], [hasJoined, toggleAudio, toggleVideo, handleJoin, handleLeave, onTriggerAddActionItem]);
+
+  useKeyboardShortcuts(meetingShortcuts);
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -268,6 +284,7 @@ export default function VideoArea({
       </div>
 
       <HostControls
+        ref={hostControlsRef}
         meetingId={meetingId}
         meetingTitle={meetingTitle}
         audioEnabled={audioEnabled}

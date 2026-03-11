@@ -58,7 +58,13 @@ function DashboardApp() {
 
   const [agendaPanelOpen, setAgendaPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [addActionItemTrigger, setAddActionItemTrigger] = useState(0);
   const meetingLayoutRef = useRef(null);
+
+  const triggerAddActionItem = useCallback(() => {
+    setRightPanelOpen(true);
+    setAddActionItemTrigger(t => t + 1);
+  }, []);
 
   const toggleAgendaPanel = useCallback(() => setAgendaPanelOpen(prev => !prev), []);
   const toggleRightPanel = useCallback(() => setRightPanelOpen(prev => !prev), []);
@@ -311,6 +317,7 @@ function DashboardApp() {
               onToggleAgendaPanel={toggleAgendaPanel}
               onToggleRightPanel={toggleRightPanel}
               onMeetingEnded={handleMeetingEnded}
+              onTriggerAddActionItem={triggerAddActionItem}
             />
             {rightPanelOpen && (
               <div className="meeting-side-panel meeting-side-panel-right open">
@@ -326,6 +333,8 @@ function DashboardApp() {
                     meetingId={selectedMeeting.id}
                     fetchWithAuth={fetchWithAuth}
                     onRefresh={() => fetchActionItems(selectedMeeting.id)}
+                    addActionItemTrigger={addActionItemTrigger}
+                    onAddTriggered={() => setAddActionItemTrigger(0)}
                   />
                   <LiveOutcome agendaItems={agendaItems} actionItems={actionItems} transcripts={transcripts} />
                 </div>

@@ -246,7 +246,10 @@ export default function ArchiveView({ fetchWithAuth }) {
             </div>
 
             {loading ? (
+				<div className="meeting-list">
                 <p style={{ color: 'var(--text-muted)' }}>Searching...</p>
+				</div>
+
             ) : (
                 <div className="meeting-list">
                     {results.map(meeting => (

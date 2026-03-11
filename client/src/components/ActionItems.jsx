@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from './Icon';
 import {
     CheckmarkCircle01Icon, Clock01Icon, AlertCircleIcon,
@@ -25,13 +25,20 @@ const statusConfig = {
 const CATEGORIES = ['Technical', 'Administrative', 'Decision', 'Follow-up'];
 const STATUSES = ['draft', 'pending', 'in-progress', 'completed'];
 
-export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh }) {
+export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh, addActionItemTrigger, onAddTriggered }) {
     const [collapsed, setCollapsed] = useState(false);
     const [adding, setAdding] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newCategory, setNewCategory] = useState('Technical');
     const [newDeadline, setNewDeadline] = useState('');
     const [editingId, setEditingId] = useState(null);
+
+    useEffect(() => {
+        if (addActionItemTrigger && addActionItemTrigger > 0) {
+            setAdding(true);
+            onAddTriggered?.();
+        }
+    }, [addActionItemTrigger, onAddTriggered]);
 
     const handleCreate = async () => {
         if (!newTitle.trim() || !meetingId) return;
@@ -158,13 +165,16 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                     })}
 
                     {adding ? (
-                        <div className="glass-card inline-form-card">
+                        <div className="glass-card inline-form-card" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAdding(false); } }}>
                             <input
                                 className="input-field"
                                 placeholder="Action item title..."
                                 value={newTitle}
                                 onChange={(e) => setNewTitle(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleCreate();
+                                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAdding(false); }
+                                }}
                                 autoFocus
                                 style={{ marginBottom: '0.25rem' }}
                             />
