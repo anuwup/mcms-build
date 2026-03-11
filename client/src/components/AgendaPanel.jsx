@@ -9,7 +9,7 @@ import { useSocket } from '../context/SocketContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChange, onClose, fetchWithAuth }) {
+export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChange, onClose, fetchWithAuth, addAgendaItemTrigger, onAddTriggered }) {
     const { socket } = useSocket();
     const [items, setItems] = useState(agendaItems);
     const [activeId, setActiveId] = useState(null);
@@ -20,6 +20,13 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
     const intervalRef = useRef(null);
 
     useEffect(() => { setItems(agendaItems); }, [agendaItems]);
+
+    useEffect(() => {
+        if (addAgendaItemTrigger && addAgendaItemTrigger > 0) {
+            setAddingItem(true);
+            onAddTriggered?.();
+        }
+    }, [addAgendaItemTrigger, onAddTriggered]);
 
     useEffect(() => {
         const active = items.find(i => i.status === 'active');
@@ -201,14 +208,18 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
             </div>
 
             {addingItem ? (
-                <div className="inline-form-card" style={{ margin: '0 0.5rem 0.5rem' }}>
+                <div
+                    className="inline-form-card"
+                    style={{ margin: '0 0.5rem 0.5rem' }}
+                    onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAddingItem(false); } }}
+                >
                     <input
                         type="text"
                         className="input-field"
                         placeholder="Item title..."
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAddingItem(false); } }}
                         autoFocus
                         style={{ marginBottom: '0.25rem' }}
                     />
@@ -226,13 +237,15 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
                     </div>
                 </div>
             ) : (
-                <button
-                    className="btn btn-secondary"
-                    style={{ margin: '0 var(--lk-size-sm)', width: 'calc(100% - 2 * var(--lk-size-sm))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    onClick={() => setAddingItem(true)}
-                >
-                    <Icon icon={Add01Icon} size={16} /> Add Item
-                </button>
+                <ShortcutTooltip keys={['A']} position="top" fullWidth>
+                    <button
+                        className="btn btn-secondary"
+                        style={{ margin: '0 var(--lk-size-sm)', width: 'calc(100% - 2 * var(--lk-size-sm))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setAddingItem(true)}
+                    >
+                        <Icon icon={Add01Icon} size={16} /> Add Item
+                    </button>
+                </ShortcutTooltip>
             )}
         </div>
     );

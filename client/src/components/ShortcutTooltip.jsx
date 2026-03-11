@@ -20,9 +20,9 @@ function KeyboardIcon() {
  * Wraps children with a tooltip that shows a keyboard icon + shortcut keys.
  * Portaled to document.body so it's never clipped by overflow:hidden ancestors.
  *
- * @param {{ keys: string[], position?: 'top'|'bottom'|'right', children: React.ReactNode }} props
+ * @param {{ keys?: string[], label?: string, position?: 'top'|'bottom'|'right', fullWidth?: boolean, children: React.ReactNode }} props
  */
-export default function ShortcutTooltip({ keys, position = 'bottom', children }) {
+export default function ShortcutTooltip({ keys, label, position = 'bottom', fullWidth, children }) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState(null);
   const anchorRef = useRef(null);
@@ -82,7 +82,7 @@ export default function ShortcutTooltip({ keys, position = 'bottom', children })
   return (
     <div
       ref={anchorRef}
-      className="shortcut-tooltip-anchor"
+      className={`shortcut-tooltip-anchor ${fullWidth ? 'shortcut-tooltip-anchor-fullwidth' : ''}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
@@ -95,8 +95,13 @@ export default function ShortcutTooltip({ keys, position = 'bottom', children })
           className="shortcut-tooltip-portal"
           style={coords ? { top: coords.top, left: coords.left, opacity: 1 } : { opacity: 0 }}
         >
-          <KeyboardIcon />
-          {keys && keys.length > 0 && <Kbd keys={keys} />}
+          {label && <span className="shortcut-tooltip-label">{label}</span>}
+          {keys && keys.length > 0 && (
+            <>
+              <KeyboardIcon />
+              <Kbd keys={keys} />
+            </>
+          )}
         </div>,
         document.body,
       )}

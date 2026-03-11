@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Icon from './Icon';
+import ShortcutTooltip from './ShortcutTooltip';
 import {
     CheckmarkCircle01Icon, Clock01Icon, AlertCircleIcon,
     ArrowRight01Icon, ArrowDown01Icon, ArrowUp01Icon,
@@ -198,13 +199,15 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                         </div>
                     ) : (
                         meetingId && (
-                            <button
-                                className="btn btn-secondary"
-                                style={{ margin: '0 var(--lk-size-sm)', width: 'calc(100% - 2 * var(--lk-size-sm))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                onClick={() => setAdding(true)}
-                            >
-                                <Icon icon={Add01Icon} size={16} /> Add Action Item
-                            </button>
+                            <ShortcutTooltip keys={['Shift', 'A']} position="top" fullWidth>
+                                <button
+                                    className="btn btn-secondary"
+                                    style={{ margin: '0 var(--lk-size-sm)', width: 'calc(100% - 2 * var(--lk-size-sm))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    onClick={() => setAdding(true)}
+                                >
+                                    <Icon icon={Add01Icon} size={16} /> Add Action Item
+                                </button>
+                            </ShortcutTooltip>
                         )
                     )}
                 </div>

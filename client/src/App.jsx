@@ -59,11 +59,17 @@ function DashboardApp() {
   const [agendaPanelOpen, setAgendaPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [addActionItemTrigger, setAddActionItemTrigger] = useState(0);
+  const [addAgendaItemTrigger, setAddAgendaItemTrigger] = useState(0);
   const meetingLayoutRef = useRef(null);
 
   const triggerAddActionItem = useCallback(() => {
     setRightPanelOpen(true);
     setAddActionItemTrigger(t => t + 1);
+  }, []);
+
+  const triggerAddAgendaItem = useCallback(() => {
+    setAgendaPanelOpen(true);
+    setAddAgendaItemTrigger(t => t + 1);
   }, []);
 
   const toggleAgendaPanel = useCallback(() => setAgendaPanelOpen(prev => !prev), []);
@@ -297,6 +303,8 @@ function DashboardApp() {
                   onItemChange={setAgendaItems}
                   onClose={toggleAgendaPanel}
                   fetchWithAuth={fetchWithAuth}
+                  addAgendaItemTrigger={addAgendaItemTrigger}
+                  onAddTriggered={() => setAddAgendaItemTrigger(0)}
                 />
                 <RubricSidebar
                   meetingId={selectedMeeting.id}
@@ -318,6 +326,7 @@ function DashboardApp() {
               onToggleRightPanel={toggleRightPanel}
               onMeetingEnded={handleMeetingEnded}
               onTriggerAddActionItem={triggerAddActionItem}
+              onTriggerAddAgendaItem={triggerAddAgendaItem}
             />
             {rightPanelOpen && (
               <div className="meeting-side-panel meeting-side-panel-right open">

@@ -10,6 +10,7 @@ import {
   SidebarRightIcon,
 } from "@hugeicons/core-free-icons";
 import ShortcutTooltip from "./ShortcutTooltip";
+import Kbd from "./Kbd";
 import useWebRTC from "../hooks/useWebRTC";
 import useTranscriptionCapture from "../hooks/useTranscriptionCapture";
 import { useSocket } from "../context/SocketContext";
@@ -105,6 +106,7 @@ export default function VideoArea({
   onToggleRightPanel,
   onMeetingEnded,
   onTriggerAddActionItem,
+  onTriggerAddAgendaItem,
 }) {
   const { socket, connected } = useSocket();
   const {
@@ -141,12 +143,12 @@ export default function VideoArea({
     { key: 'm', handler: () => hasJoined && toggleAudio(), allowInInput: false },
     { key: 'r', handler: () => hasJoined && hostControlsRef.current?.toggleRecording(), allowInInput: false },
     { key: 'c', handler: () => hasJoined && toggleVideo(), allowInInput: false },
-    { key: 'a', shift: true, handler: () => hasJoined && hostControlsRef.current?.showAttendance(), allowInInput: false },
-    { key: 'a', handler: () => onTriggerAddActionItem?.(), allowInInput: false },
+    { key: 'a', handler: () => onTriggerAddAgendaItem?.(), allowInInput: false },
+    { key: 'a', shift: true, handler: () => onTriggerAddActionItem?.(), allowInInput: false },
     { key: 'Enter', handler: () => !hasJoined && handleJoin(), allowInInput: false },
     { key: 'l', mod: true, shift: true, handler: () => hasJoined && handleLeave(), allowInInput: false },
     { key: 'e', mod: true, shift: true, handler: () => hasJoined && hostControlsRef.current?.endMeeting(), allowInInput: false },
-  ], [hasJoined, toggleAudio, toggleVideo, handleJoin, handleLeave, onTriggerAddActionItem]);
+  ], [hasJoined, toggleAudio, toggleVideo, handleJoin, handleLeave, onTriggerAddActionItem, onTriggerAddAgendaItem]);
 
   useKeyboardShortcuts(meetingShortcuts);
 
@@ -248,7 +250,7 @@ export default function VideoArea({
                 <h3 className="prejoin-title">{meetingTitle}</h3>
                 <p className="prejoin-subtitle">{mediaError ? 'Allow camera/mic access and try again.' : 'Ready to join?'}</p>
                 <button className="btn btn-primary prejoin-btn" onClick={handleJoin}>
-                  {mediaError ? 'Try Again' : 'Join Meeting'}
+                  {mediaError ? 'Try Again' : <>Join Meeting <Kbd keys={['↵']} className="prejoin-enter" /></>}
                 </button>
               </div>
             </div>
@@ -417,6 +419,19 @@ export default function VideoArea({
           margin-top: 0.5rem;
           padding: 0.625rem 2rem;
           font-size: 0.875rem;
+        }
+        .prejoin-btn .prejoin-enter {
+          margin-left: 0.375rem;
+        }
+        .prejoin-btn .prejoin-enter .kbd {
+          font-size: 0.5625rem;
+          min-width: 1rem;
+          height: 1rem;
+          padding: 0 0.25rem;
+          background: color-mix(in srgb, var(--primary) 25%, rgba(255,255,255,0.25));
+          border: 0.0625rem solid color-mix(in srgb, var(--primary) 70%, rgba(255,255,255,0.5));
+          color: rgba(255,255,255,0.95);
+          box-shadow: 0 0.0625rem 0 rgba(0,0,0,0.15);
         }
 
         /* Video grid */
