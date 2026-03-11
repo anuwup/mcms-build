@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-module.exports = function ({ User, Meeting, Poll, Notification, protect, usingMongo, emitToUser, sendRsvpEmail, generateICS, CLIENT_URL, meetings: mockMeetings }) {
+module.exports = function ({ User, Meeting, Poll, Notification, protect, usingMongo, emitToUser, sendRsvpEmail, generateICS, CLIENT_URL, inMemoryMeetings }) {
 
     router.get('/', protect, async (req, res) => {
         try {
@@ -22,9 +22,9 @@ module.exports = function ({ User, Meeting, Poll, Notification, protect, usingMo
                     meetingUrl: m.modality !== 'Offline' ? `${base}?meeting=${m._id}` : null,
                     pollId: m.pollId,
                 }));
-                return res.json([...formatted, ...mockMeetings]);
+                return res.json(formatted);
             }
-            res.json(mockMeetings);
+            res.json(inMemoryMeetings);
         } catch (error) {
             res.status(500).json({ message: 'Server error', error: error.message });
         }
@@ -127,7 +127,7 @@ module.exports = function ({ User, Meeting, Poll, Notification, protect, usingMo
                 status: isSingleSlot ? 'scheduled' : 'pending_poll',
                 meetingUrl,
             };
-            mockMeetings.push(newMeeting);
+            inMemoryMeetings.push(newMeeting);
             res.status(201).json(newMeeting);
         } catch (error) {
             console.error('Create meeting error:', error);

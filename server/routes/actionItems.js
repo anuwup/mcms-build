@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const ActionItem = require('../models/ActionItem');
 
-module.exports = function ({ protect, usingMongo, Notification, emitToUser, actionItems: mockActionItems }) {
+module.exports = function ({ protect, usingMongo, Notification, emitToUser, inMemoryActionItems }) {
 
     router.get('/:meetingId', protect, async (req, res) => {
         try {
@@ -21,7 +21,7 @@ module.exports = function ({ protect, usingMongo, Notification, emitToUser, acti
                     })));
                 }
             }
-            res.json(mockActionItems[req.params.meetingId] || []);
+            res.json(inMemoryActionItems[req.params.meetingId] || []);
         } catch (error) {
             res.status(500).json({ message: 'Server error', error: error.message });
         }
@@ -37,8 +37,8 @@ module.exports = function ({ protect, usingMongo, Notification, emitToUser, acti
                     category: category || 'Technical', status: status || 'pending',
                     deadline, agendaItemId: agendaItemId || null,
                 };
-                if (!mockActionItems[req.params.meetingId]) mockActionItems[req.params.meetingId] = [];
-                mockActionItems[req.params.meetingId].push(item);
+                if (!inMemoryActionItems[req.params.meetingId]) inMemoryActionItems[req.params.meetingId] = [];
+                inMemoryActionItems[req.params.meetingId].push(item);
                 return res.status(201).json(item);
             }
 

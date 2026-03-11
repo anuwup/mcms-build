@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Agenda = require('../models/Agenda');
 
-module.exports = function ({ protect, usingMongo, agendas: mockAgendas }) {
+module.exports = function ({ protect, usingMongo, inMemoryAgendas }) {
 
     router.get('/:meetingId', protect, async (req, res) => {
         try {
@@ -10,7 +10,7 @@ module.exports = function ({ protect, usingMongo, agendas: mockAgendas }) {
                 const agenda = await Agenda.findOne({ meetingId: req.params.meetingId });
                 if (agenda) return res.json(agenda.items);
             }
-            res.json(mockAgendas[req.params.meetingId] || []);
+            res.json(inMemoryAgendas[req.params.meetingId] || []);
         } catch (error) {
             res.status(500).json({ message: 'Server error', error: error.message });
         }
@@ -20,7 +20,7 @@ module.exports = function ({ protect, usingMongo, agendas: mockAgendas }) {
         try {
             if (!usingMongo()) {
                 const { items } = req.body;
-                mockAgendas[req.params.meetingId] = items || [];
+                inMemoryAgendas[req.params.meetingId] = items || [];
                 return res.json(items || []);
             }
 
@@ -49,9 +49,9 @@ module.exports = function ({ protect, usingMongo, agendas: mockAgendas }) {
             };
 
             if (!usingMongo()) {
-                if (!mockAgendas[req.params.meetingId]) mockAgendas[req.params.meetingId] = [];
-                newItem.order = mockAgendas[req.params.meetingId].length;
-                mockAgendas[req.params.meetingId].push(newItem);
+                if (!inMemoryAgendas[req.params.meetingId]) inMemoryAgendas[req.params.meetingId] = [];
+                newItem.order = inMemoryAgendas[req.params.meetingId].length;
+                inMemoryAgendas[req.params.meetingId].push(newItem);
                 return res.status(201).json(newItem);
             }
 
@@ -73,7 +73,7 @@ module.exports = function ({ protect, usingMongo, agendas: mockAgendas }) {
             const { status, notes, title, duration } = req.body;
 
             if (!usingMongo()) {
-                const items = mockAgendas[req.params.meetingId];
+                const items = inMemoryAgendas[req.params.meetingId];
                 if (!items) return res.status(404).json({ message: 'Agenda not found' });
                 const item = items.find(i => i.id === req.params.itemId);
                 if (!item) return res.status(404).json({ message: 'Item not found' });

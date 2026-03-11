@@ -3,14 +3,22 @@ const router = express.Router();
 const Attendance = require('../models/Attendance');
 const ActionItem = require('../models/ActionItem');
 
-module.exports = function ({ Meeting, User, protect, usingMongo, mockDashboardStats }) {
+module.exports = function ({ Meeting, User, protect, usingMongo }) {
 
     router.get('/stats', protect, async (req, res) => {
         try {
             if (!usingMongo() || !Meeting) {
-                const stats = { ...mockDashboardStats };
-                if (req.user && req.user.name) stats.user = req.user.name;
-                return res.json(stats);
+                const userName = req.user?.name || 'User';
+                return res.json({
+                    user: userName, role: 'Participant',
+                    streak: 0, totalMeetings: 0, totalHours: 0,
+                    punctualityRate: 100, tasksCompleted: 0, tasksTotal: 0,
+                    badges: [{ name: 'Getting Started', icon: '🌱', description: 'Keep attending meetings!' }],
+                    weeklyHeatmap: [{ day: 'Mon', hours: 0 }, { day: 'Tue', hours: 0 }, { day: 'Wed', hours: 0 }, { day: 'Thu', hours: 0 }, { day: 'Fri', hours: 0 }],
+                    monthlyAttendance: [{ week: 'W1', attended: 0, total: 0 }, { week: 'W2', attended: 0, total: 0 }, { week: 'W3', attended: 0, total: 0 }, { week: 'W4', attended: 0, total: 0 }],
+                    sentimentProfile: { positive: 50, neutral: 40, negative: 10 },
+                    speakingTime: 0, avgMeetingDuration: 0,
+                });
             }
 
             const userId = req.user.id;

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Transcript = require('../models/Transcript');
 
-module.exports = function ({ protect, usingMongo, transcripts: mockTranscripts }) {
+module.exports = function ({ protect, usingMongo, inMemoryTranscripts }) {
 
     router.get('/:meetingId', protect, async (req, res) => {
         try {
@@ -21,7 +21,7 @@ module.exports = function ({ protect, usingMongo, transcripts: mockTranscripts }
                     })));
                 }
             }
-            res.json(mockTranscripts[req.params.meetingId] || []);
+            res.json(inMemoryTranscripts[req.params.meetingId] || []);
         } catch (err) {
             res.status(500).json({ message: 'Server error', error: err.message });
         }

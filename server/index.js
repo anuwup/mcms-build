@@ -172,53 +172,19 @@ async function sendRsvpEmail(meeting, user, slot, icsBuffer) {
     }
 }
 
-// ── Mock Data (fallback) ─────────────────────────────────────
-const mockMeetings = [
-    { id: 'mtg-001', title: 'Sprint Planning — Q1 Review', modality: 'Online', date: '2026-03-05', time: '10:00 AM', host: 'Dr. Sharma', participants: ['Ravi K.', 'Ananya P.', 'Kiran M.', 'Priya S.'], status: 'scheduled', meetingUrl: `${CLIENT_URL}?meeting=mtg-001` },
-    { id: 'mtg-002', title: 'CS301 — Data Structures Lecture', modality: 'Hybrid', date: '2026-03-06', time: '2:00 PM', host: 'Prof. Reddy', participants: ['60 students'], status: 'scheduled', meetingUrl: `${CLIENT_URL}?meeting=mtg-002` },
-    { id: 'mtg-003', title: 'Frontend Candidate Evaluation', modality: 'Online', date: '2026-02-28', time: '3:00 PM', host: 'HR Team', participants: ['Priya S.', 'Ravi K.'], status: 'completed' },
-];
-
-const mockAgendas = {
-    'mtg-001': [
-        { id: 'ag-1', title: 'Review Previous Sprint Goals', duration: 10, status: 'active', notes: '' },
-        { id: 'ag-2', title: 'Demo: New Dashboard Module', duration: 15, status: 'pending', notes: '' },
-        { id: 'ag-3', title: 'Plan next sprint tasks', duration: 20, status: 'pending', notes: '' },
-    ],
-};
-
-const mockTranscripts = {
-    'mtg-001': [
-        { id: 't-1', speaker: 'Dr. Sharma', text: "Let's start with the sprint review.", timestamp: '10:01:12', sentiment: 'neutral', agendaId: 'ag-1' },
-        { id: 't-2', speaker: 'Ravi K.', text: 'I completed the QR module integration.', timestamp: '10:03:45', sentiment: 'positive', agendaId: 'ag-1' },
-    ],
-};
-
-const mockActionItems = {
-    'mtg-001': [
-        { id: 'ai-1', title: 'Complete QR module', assignee: 'Ananya P.', category: 'Technical', status: 'in-progress', deadline: '2026-03-08', agendaId: 'ag-1' },
-        { id: 'ai-2', title: 'Write unit tests for agenda panel', assignee: 'Kiran M.', category: 'Technical', status: 'pending', deadline: '2026-03-09', agendaId: 'ag-2' },
-    ],
-};
-
-const mockDashboardStats = {
-    user: 'Kiran M.', role: 'Host', streak: 7, totalMeetings: 42,
-    totalHours: 63.5, punctualityRate: 94, tasksCompleted: 28, tasksTotal: 32,
-    badges: [{ name: 'Action Hero', icon: '🏆', description: '90%+ tasks on time' }, { name: '7-Day Streak', icon: '🔥', description: '7 consecutive on-time meetings' }],
-    weeklyHeatmap: [{ day: 'Mon', hours: 3.5 }, { day: 'Tue', hours: 5.0 }, { day: 'Wed', hours: 2.0 }, { day: 'Thu', hours: 4.5 }, { day: 'Fri', hours: 3.0 }],
-    monthlyAttendance: [{ week: 'W1', attended: 5, total: 6 }, { week: 'W2', attended: 6, total: 6 }],
-    sentimentProfile: { positive: 62, neutral: 30, negative: 8 },
-    speakingTime: 18.5, avgMeetingDuration: 45,
-};
+// ── In-memory fallback stores (empty for new users; populated as they create data) ──
+const inMemoryMeetings = [];
+const inMemoryAgendas = {};
+const inMemoryTranscripts = {};
+const inMemoryActionItems = {};
 
 // ── Shared deps object for routes ────────────────────────────
 const deps = {
     User, Meeting, Poll, Notification, RSVP, protect, usingMongo,
     generateToken, emitToUser, sendRsvpEmail, generateICS,
     inMemoryUsers, JWT_SECRET, PORT, CLIENT_URL,
-    meetings: mockMeetings, agendas: mockAgendas,
-    transcripts: mockTranscripts, actionItems: mockActionItems,
-    mockDashboardStats, callAISummarize,
+    inMemoryMeetings, inMemoryAgendas, inMemoryTranscripts, inMemoryActionItems,
+    callAISummarize,
 };
 
 // ── Mount Routes ─────────────────────────────────────────────
@@ -429,7 +395,7 @@ io.on('connection', (socket) => {
                     activeItemId: agenda.activeItemId,
                 });
             } else {
-                const items = mockAgendas[meetingId];
+                const items = inMemoryAgendas[meetingId];
                 if (!items) return;
                 const item = items.find(i => i.id === itemId);
                 if (!item) return;

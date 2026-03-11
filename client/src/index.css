@@ -1097,7 +1097,7 @@ input[type="date"].input-field {
 .stat-value {
   font-size: var(--font-size-title3);
   font-weight: 600;
-  letter-spacing: -0.022em;
+  letter-spacing: -0.042em;
   line-height: var(--lk-halfstep);
   color: var(--primary-dark);
   margin-top: var(--lk-size-2xs);
