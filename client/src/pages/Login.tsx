@@ -1,26 +1,29 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Icon from '../components/Icon';
-import { UserIcon, Mail01Icon, Key01Icon, Alert01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
+import { Mail01Icon, Key01Icon, Alert01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
 
-export default function Signup({ onNavigate }) {
-    const [name, setName] = useState('');
+interface LoginProps {
+  onNavigate: (view: string) => void;
+}
+
+export default function Login({ onNavigate }: LoginProps) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    const { register } = useAuth();
+    const { login } = useAuth();
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         setIsLoading(true);
 
-        const result = await register(name, email, password);
+        const result = await login(email, password);
 
         if (!result.success) {
-            setError(result.message);
+            setError('message' in result ? result.message : 'Unknown error');
             setIsLoading(false);
         }
     };
@@ -32,6 +35,7 @@ export default function Signup({ onNavigate }) {
                     <div className="logo-icon" style={{ marginBottom: 'var(--lk-size-sm)' }}>
                         <span className="brand-name">Concord</span>
                     </div>
+
                     <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-size-label)' }}>Meeting and communication management system for power users.</p>
                 </div>
 
@@ -44,28 +48,13 @@ export default function Signup({ onNavigate }) {
 
                 <form onSubmit={handleSubmit} className="auth-form">
                     <div className="form-group">
-                        <label className="form-label">Full Name</label>
-                        <div className="input-with-icon">
-                            <span className="input-icon"><Icon icon={UserIcon} size={18} /></span>
-                            <input
-                                type="text"
-                                className="input pl-10"
-                                placeholder="Dr. Rajesh Sharma"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                required
-                            />
-                        </div>
-                    </div>
-
-                    <div className="form-group">
                         <label className="form-label">Email Address</label>
                         <div className="input-with-icon">
                             <span className="input-icon"><Icon icon={Mail01Icon} size={18} /></span>
                             <input
                                 type="email"
                                 className="input pl-10"
-                                placeholder="rajesh@university.edu"
+                                placeholder="you@university.edu"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
@@ -80,25 +69,24 @@ export default function Signup({ onNavigate }) {
                             <input
                                 type="password"
                                 className="input pl-10"
-                                placeholder="Create a strong password"
+                                placeholder="••••••••"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                minLength={6}
                             />
                         </div>
                     </div>
 
                     <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '8px', padding: '12px', justifyContent: 'center' }} disabled={isLoading}>
-                        {isLoading ? 'Creating Account...' : 'Sign Up'}
+                        {isLoading ? 'Signing in...' : 'Sign In'}
                         {!isLoading && <Icon icon={ArrowRight01Icon} size={16} />}
                     </button>
                 </form>
 
                 <div className="auth-footer">
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-                        Already have an account?{' '}
-                        <button className="text-btn" onClick={() => onNavigate('login')}>Sign in</button>
+                        Don't have an account?{' '}
+                        <button className="text-btn" onClick={() => onNavigate('signup')}>Create one</button>
                     </p>
                 </div>
             </div>

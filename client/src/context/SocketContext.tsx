@@ -1,8 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
-const SocketContext = createContext(null);
+export interface SocketContextValue {
+    socket: Socket | null;
+    connected: boolean;
+}
+
+const SocketContext = createContext<SocketContextValue | null>(null);
 
 export const useSocket = () => useContext(SocketContext);
 
@@ -10,9 +15,13 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL
     || import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '')
     || 'http://localhost:5001';
 
-export const SocketProvider = ({ children }) => {
+interface SocketProviderProps {
+    children: ReactNode;
+}
+
+export const SocketProvider = ({ children }: SocketProviderProps) => {
     const { user } = useAuth();
-    const socketRef = useRef(null);
+    const socketRef = useRef<Socket | null>(null);
     const [connected, setConnected] = useState(false);
 
     useEffect(() => {

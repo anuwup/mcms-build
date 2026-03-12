@@ -9,7 +9,27 @@ import QROverlay from './QROverlay';
 import ShortcutTooltip from './ShortcutTooltip';
 import { useSocket } from '../context/SocketContext';
 
-const HostControls = forwardRef(function HostControls({
+export interface HostControlsProps {
+    meetingId?: string;
+    meetingTitle?: string;
+    audioEnabled: boolean;
+    videoEnabled: boolean;
+    screenSharing: boolean;
+    onToggleAudio: () => void;
+    onToggleVideo: () => void;
+    onToggleScreenShare: () => void;
+    onLeave: () => void;
+    hasJoined: boolean;
+    onMeetingEnded?: () => void;
+}
+
+export interface HostControlsRef {
+    toggleRecording: () => void;
+    showAttendance: () => void;
+    endMeeting: () => void;
+}
+
+const HostControls = forwardRef<HostControlsRef, HostControlsProps>(function HostControls({
     meetingId, meetingTitle,
     audioEnabled, videoEnabled, screenSharing,
     onToggleAudio, onToggleVideo, onToggleScreenShare,
@@ -36,8 +56,8 @@ const HostControls = forwardRef(function HostControls({
 
     useEffect(() => {
         if (!socket) return;
-        const onStarted = ({ meetingId: mid }) => { if (mid === meetingId) setRecording(true); };
-        const onStopped = ({ meetingId: mid }) => { if (mid === meetingId) setRecording(false); };
+        const onStarted = ({ meetingId: mid }: { meetingId?: string }) => { if (mid === meetingId) setRecording(true); };
+        const onStopped = ({ meetingId: mid }: { meetingId?: string }) => { if (mid === meetingId) setRecording(false); };
         socket.on('transcription_started', onStarted);
         socket.on('transcription_stopped', onStopped);
         return () => {

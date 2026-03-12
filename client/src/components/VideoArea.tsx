@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useRef, useMemo } from "react";
-import HostControls from "./HostControls";
+import HostControls, { type HostControlsRef } from "./HostControls";
 import useKeyboardShortcuts from "../hooks/useKeyboardShortcuts";
 import Icon from "./Icon";
 import {
@@ -17,9 +17,34 @@ import { useSocket } from "../context/SocketContext";
 
 const SERVER_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5001").replace(/\/api$/, "");
 
-function VideoTile({ stream, name, profileImage, muted, isSelf, speaking }) {
-  const videoRef = useRef(null);
-  const [hasVideo, setHasVideo] = useState(false);
+interface VideoTileProps {
+  stream: MediaStream | null;
+  name?: string;
+  profileImage?: string | null;
+  muted: boolean;
+  isSelf: boolean;
+  speaking?: boolean;
+}
+
+interface VideoAreaProps {
+  meetingId?: string;
+  meetingTitle?: string;
+  participants?: Array<{ _id?: string; id?: string; name?: string; profileImage?: string | null }>;
+  modality?: string;
+  currentUser?: { _id?: string; name?: string; profileImage?: string | null } | null;
+  fullscreenRef?: React.RefObject<HTMLDivElement | null>;
+  agendaPanelOpen: boolean;
+  rightPanelOpen: boolean;
+  onToggleAgendaPanel: () => void;
+  onToggleRightPanel: () => void;
+  onMeetingEnded?: () => void;
+  onTriggerAddActionItem?: () => void;
+  onTriggerAddAgendaItem?: () => void;
+}
+
+function VideoTile({ stream, name, profileImage, muted, isSelf, speaking }: VideoTileProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [hasVideo, setHasVideo] = useState<boolean>(false);
 
   useEffect(() => {
     if (!stream) { setHasVideo(false); return; }
@@ -56,7 +81,7 @@ function VideoTile({ stream, name, profileImage, muted, isSelf, speaking }) {
     }
   }, [stream]);
 
-  const initial = name?.charAt(0)?.toUpperCase() || "?";
+  const initial: string = name?.charAt(0)?.toUpperCase() || "?";
 
   return (
     <div className={`video-tile ${speaking ? "speaking" : ""}`}>
@@ -107,7 +132,7 @@ export default function VideoArea({
   onMeetingEnded,
   onTriggerAddActionItem,
   onTriggerAddAgendaItem,
-}) {
+}: VideoAreaProps) {
   const { socket, connected } = useSocket();
   const {
     localStream,
@@ -127,7 +152,7 @@ export default function VideoArea({
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasJoined, setHasJoined] = useState(false);
-  const hostControlsRef = useRef(null);
+  const hostControlsRef = useRef<HostControlsRef | null>(null);
 
   const handleJoin = useCallback(async () => {
     const success = await joinRoom();

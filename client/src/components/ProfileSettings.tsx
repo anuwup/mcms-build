@@ -10,22 +10,22 @@ const SERVER_BASE = API_BASE.replace(/\/api$/, '');
 export default function ProfileSettings() {
     const { user, updateUser, logout } = useAuth();
 
-    const [editField, setEditField] = useState(null);
+    const [editField, setEditField] = useState<'name' | 'email' | 'password' | null>(null);
     const [nameVal, setNameVal] = useState(user?.name || '');
     const [emailVal, setEmailVal] = useState(user?.email || '');
     const [currentPw, setCurrentPw] = useState('');
     const [newPw, setNewPw] = useState('');
-    const [fieldLoading, setFieldLoading] = useState(null);
-    const [fieldError, setFieldError] = useState(null);
-    const [fieldSuccess, setFieldSuccess] = useState(null);
+    const [fieldLoading, setFieldLoading] = useState<'name' | 'email' | 'password' | null>(null);
+    const [fieldError, setFieldError] = useState<string | null>(null);
+    const [fieldSuccess, setFieldSuccess] = useState<string | null>(null);
 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [deletePw, setDeletePw] = useState('');
-    const [deleteError, setDeleteError] = useState(null);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [avatarLoading, setAvatarLoading] = useState(false);
-    const fileInputRef = useRef(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const authHeaders = {
         Authorization: `Bearer ${user?.token}`,
@@ -105,7 +105,7 @@ export default function ProfileSettings() {
         }
     };
 
-    const handleAvatarUpload = async (e) => {
+    const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
         setAvatarLoading(true);
@@ -170,13 +170,13 @@ export default function ProfileSettings() {
         }
     };
 
-    const renderField = (label, value, field, inputType = 'text') => {
+    const renderField = (label: string, value: string, field: 'name' | 'email' | 'password', inputType: string = 'text') => {
         const isEditing = editField === field;
         const isPassword = field === 'password';
         const displayValue = isPassword ? '••••••••' : value;
         const saveHandler = isPassword ? handleSavePassword : field === 'name' ? handleSaveName : handleSaveEmail;
 
-        const onKeyDown = (e) => {
+        const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
             if (e.key === 'Enter') { e.preventDefault(); saveHandler(); }
             if (e.key === 'Escape') { setEditField(null); clearMessages(); }
         };
@@ -194,7 +194,7 @@ export default function ProfileSettings() {
                                         className="profile-field-input"
                                         placeholder="Current password"
                                         value={currentPw}
-                                        onChange={e => setCurrentPw(e.target.value)}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentPw(e.target.value)}
                                         onKeyDown={onKeyDown}
                                         autoFocus
                                     />
@@ -203,7 +203,7 @@ export default function ProfileSettings() {
                                         className="profile-field-input"
                                         placeholder="New password (min 6 chars)"
                                         value={newPw}
-                                        onChange={e => setNewPw(e.target.value)}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPw(e.target.value)}
                                         onKeyDown={onKeyDown}
                                     />
                                 </>
@@ -212,7 +212,7 @@ export default function ProfileSettings() {
                                     type={inputType}
                                     className="profile-field-input"
                                     value={field === 'name' ? nameVal : emailVal}
-                                    onChange={e => field === 'name' ? setNameVal(e.target.value) : setEmailVal(e.target.value)}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => field === 'name' ? setNameVal(e.target.value) : setEmailVal(e.target.value)}
                                     onKeyDown={onKeyDown}
                                     autoFocus
                                 />
@@ -322,8 +322,8 @@ export default function ProfileSettings() {
                                     className="profile-field-input"
                                     placeholder="Enter your password"
                                     value={deletePw}
-                                    onChange={e => setDeletePw(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleDeleteAccount(); } if (e.key === 'Escape') { setShowDeleteConfirm(false); setDeletePw(''); setDeleteError(null); } }}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDeletePw(e.target.value)}
+                                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { e.preventDefault(); handleDeleteAccount(); } if (e.key === 'Escape') { setShowDeleteConfirm(false); setDeletePw(''); setDeleteError(null); } }}
                                     autoFocus
                                 />
                                 {deleteError && <div className="profile-msg profile-msg-error">{deleteError}</div>}

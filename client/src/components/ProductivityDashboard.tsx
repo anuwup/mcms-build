@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Icon from './Icon';
 import {
     ChartIncreaseIcon,
@@ -11,17 +11,38 @@ import {
     Calendar02Icon,
 } from '@hugeicons/core-free-icons';
 
+interface DashboardStats {
+    totalMeetings: number;
+    totalHours: number;
+    punctualityRate: number;
+    tasksCompleted: number;
+    tasksTotal: number;
+    weeklyHeatmap: Array<{ day: string; hours: number }>;
+    badges: Array<{ icon: string; name: string; description: string }>;
+    streak: number;
+    sentimentProfile: { positive: number; neutral: number; negative: number };
+    user?: string;
+    monthlyAttendance: Array<{ week: string; attended: number; total: number }>;
+    speakingTime: number;
+    avgMeetingDuration: number;
+}
+
+interface ProductivityDashboardProps {
+    stats: DashboardStats | null;
+    userName?: string;
+}
+
 const TABS = ['overview', 'attendance', 'engagement'];
 
-export default function ProductivityDashboard({ stats, userName }) {
+export default function ProductivityDashboard({ stats, userName }: ProductivityDashboardProps) {
     const [activeTab, setActiveTab] = useState('overview');
 
-    const handleTab = useCallback((e) => {
+    const handleTab = useCallback((e: KeyboardEvent) => {
         if (e.key !== 'Tab' || e.altKey || e.metaKey || e.ctrlKey) return;
 
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        if (document.activeElement?.isContentEditable) return;
+        if ((document.activeElement as HTMLElement)?.isContentEditable) return;
         if (document.querySelector('.modal-overlay, .meeting-creation-overlay')) return;
 
         e.preventDefault();
@@ -236,19 +257,19 @@ export default function ProductivityDashboard({ stats, userName }) {
                         </div>
                         <div className="engagement-metrics">
                             <div className="engagement-metric">
-                                <div className="engagement-circle" style={{ '--pct': `${(stats.tasksCompleted / stats.tasksTotal) * 100}%` }}>
+                                <div className="engagement-circle" style={{ '--pct': `${(stats.tasksCompleted / stats.tasksTotal) * 100}%` } as React.CSSProperties & Record<string, string>}>
                                     <span>{Math.round((stats.tasksCompleted / stats.tasksTotal) * 100)}%</span>
                                 </div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Task Completion</div>
                             </div>
                             <div className="engagement-metric">
-                                <div className="engagement-circle" style={{ '--pct': `${stats.punctualityRate}%` }}>
+                                <div className="engagement-circle" style={{ '--pct': `${stats.punctualityRate}%` } as React.CSSProperties & Record<string, string>}>
                                     <span>{stats.punctualityRate}%</span>
                                 </div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Punctuality</div>
                             </div>
                             <div className="engagement-metric">
-                                <div className="engagement-circle" style={{ '--pct': `${stats.sentimentProfile.positive}%` }}>
+                                <div className="engagement-circle" style={{ '--pct': `${stats.sentimentProfile.positive}%` } as React.CSSProperties & Record<string, string>}>
                                     <span>{stats.sentimentProfile.positive}%</span>
                                 </div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Positive Tone</div>

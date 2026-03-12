@@ -16,7 +16,7 @@ const SPEAKER_COLORS = [
     '#879A39', '#4385BE', '#CE5D97', '#5E409D',
 ];
 
-function getSpeakerColor(speaker) {
+function getSpeakerColor(speaker: string) {
     if (!speaker) return SPEAKER_COLORS[0];
     let hash = 0;
     for (let i = 0; i < speaker.length; i++) {
@@ -27,7 +27,32 @@ function getSpeakerColor(speaker) {
 
 const TIME_GAP_FOR_NEW_PARAGRAPH_S = 15;
 
-function parseTimestamp(ts) {
+interface TranscriptEntry {
+    id: string;
+    speaker: string;
+    speakerImage?: string;
+    text: string;
+    timestamp: string;
+    languageCode?: string;
+}
+
+interface Pin {
+    id: string;
+    transcriptTimestamp?: string;
+    url?: string;
+    label?: string;
+    type?: string;
+}
+
+interface TranscriptFeedProps {
+    transcripts: TranscriptEntry[];
+    isLive?: boolean;
+    onClosePanel?: () => void;
+    onPinResource?: (timestamp: string) => void;
+    pins?: Pin[];
+}
+
+function parseTimestamp(ts: string) {
     if (!ts) return 0;
     const parts = ts.split(':').map(Number);
     if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -35,7 +60,7 @@ function parseTimestamp(ts) {
     return 0;
 }
 
-function groupTranscripts(transcripts) {
+function groupTranscripts(transcripts: TranscriptEntry[]) {
     if (!transcripts.length) return [];
     const groups = [];
     let current = null;
@@ -64,8 +89,8 @@ function groupTranscripts(transcripts) {
     return groups;
 }
 
-export default function TranscriptFeed({ transcripts, isLive, onClosePanel, onPinResource, pins = [] }) {
-    const listRef = useRef(null);
+export default function TranscriptFeed({ transcripts, isLive, onClosePanel, onPinResource, pins = [] }: TranscriptFeedProps) {
+    const listRef = useRef<HTMLDivElement | null>(null);
     const [collapsed, setCollapsed] = useState(false);
 
     useEffect(() => {

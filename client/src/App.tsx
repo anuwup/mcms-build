@@ -27,7 +27,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
 
 const VIEW_KEYS = ['dashboard', 'meeting', 'schedule', 'archive', 'analytics', 'settings', 'profile'];
 
-function formatDate(dateStr) {
+function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   return `${d.getDate()} ${d.toLocaleString("en-US", { month: "short" })} ${d.getFullYear()}`;
 }
@@ -39,28 +39,28 @@ function DashboardApp() {
   const [currentView, setCurrentView] = useState("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showCreateMeeting, setShowCreateMeeting] = useState(false);
-  const [pollMeetingId, setPollMeetingId] = useState(null);
-  const searchInputRef = useRef(null);
+  const [pollMeetingId, setPollMeetingId] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") return "dark";
     return window.localStorage.getItem("theme") === "light" ? "light" : "dark";
   });
 
-  const [meetings, setMeetings] = useState([]);
-  const [agendaItems, setAgendaItems] = useState([]);
-  const [transcripts, setTranscripts] = useState([]);
-  const [actionItems, setActionItems] = useState([]);
-  const [dashboardStats, setDashboardStats] = useState(null);
-  const [selectedMeeting, setSelectedMeeting] = useState(null);
-  const [pins, setPins] = useState([]);
-  const [pinTimestamp, setPinTimestamp] = useState(null);
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [agendaItems, setAgendaItems] = useState<any[]>([]);
+  const [transcripts, setTranscripts] = useState<any[]>([]);
+  const [actionItems, setActionItems] = useState<any[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [selectedMeeting, setSelectedMeeting] = useState<any>(null);
+  const [pins, setPins] = useState<any[]>([]);
+  const [pinTimestamp, setPinTimestamp] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
 
   const [agendaPanelOpen, setAgendaPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [addActionItemTrigger, setAddActionItemTrigger] = useState(0);
   const [addAgendaItemTrigger, setAddAgendaItemTrigger] = useState(0);
-  const meetingLayoutRef = useRef(null);
+  const meetingLayoutRef = useRef<HTMLDivElement | null>(null);
 
   const triggerAddActionItem = useCallback(() => {
     setRightPanelOpen(true);
@@ -94,8 +94,8 @@ function DashboardApp() {
 
   useKeyboardShortcuts(shortcuts);
 
-  const fetchWithAuth = async (url, options = {}) => {
-    const headers = { "Content-Type": "application/json", ...options.headers };
+  const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string>) };
     if (user?.token) headers.Authorization = `Bearer ${user.token}`;
     return fetch(url, { ...options, headers });
   };
@@ -120,7 +120,7 @@ function DashboardApp() {
   }, [theme]);
 
   useEffect(() => {
-    const labels = {
+    const labels: Record<string, string> = {
       dashboard: "Dashboard",
       meeting: selectedMeeting?.title || "Live Meeting",
       schedule: "Schedule",
@@ -147,19 +147,19 @@ function DashboardApp() {
     const meetingId = selectedMeeting.id;
     socket.emit('join_meeting', { meetingId });
 
-    const handleTranscriptUpdate = (segment) => {
+    const handleTranscriptUpdate = (segment: any) => {
       if (segment.meetingId === meetingId) setTranscripts(prev => [...prev, segment]);
     };
-    const handleTranscriptReplaced = ({ meetingId: replacedId }) => {
+    const handleTranscriptReplaced = ({ meetingId: replacedId }: { meetingId: string }) => {
       if (replacedId === meetingId) fetchTranscript(meetingId);
     };
-    const handleAgendaSync = ({ meetingId: mid, items }) => {
+    const handleAgendaSync = ({ meetingId: mid, items }: { meetingId: string; items: any[] }) => {
       if (mid === meetingId) setAgendaItems(items);
     };
-    const handleMeetingEnded = ({ meetingId: mid }) => {
+    const handleMeetingEnded = ({ meetingId: mid }: { meetingId: string }) => {
       if (mid === meetingId) {
         setMeetings(prev => prev.map(m => (m.id === mid ? { ...m, status: 'completed' } : m)));
-        setSelectedMeeting(prev => prev && prev.id === mid ? { ...prev, status: 'completed' } : prev);
+        setSelectedMeeting((prev: any) => prev && prev.id === mid ? { ...prev, status: 'completed' } : prev);
       }
     };
 
@@ -188,21 +188,21 @@ function DashboardApp() {
     } catch (err) { console.error("Failed to fetch meetings:", err); }
   };
 
-  const fetchAgenda = async (meetingId) => {
+  const fetchAgenda = async (meetingId: string) => {
     try {
       const res = await fetchWithAuth(`${API_BASE}/agenda/${meetingId}`);
       if (res.ok) setAgendaItems(await res.json());
     } catch (err) { console.error("Failed to fetch agenda:", err); }
   };
 
-  const fetchTranscript = async (meetingId) => {
+  const fetchTranscript = async (meetingId: string) => {
     try {
       const res = await fetchWithAuth(`${API_BASE}/transcript/${meetingId}`);
       if (res.ok) setTranscripts(await res.json());
     } catch (err) { console.error("Failed to fetch transcript:", err); }
   };
 
-  const fetchActionItems = async (meetingId) => {
+  const fetchActionItems = async (meetingId: string) => {
     try {
       const res = await fetchWithAuth(`${API_BASE}/action-items/${meetingId}`);
       if (res.ok) setActionItems(await res.json());
@@ -216,14 +216,14 @@ function DashboardApp() {
     } catch (err) { console.error("Failed to fetch dashboard stats:", err); }
   };
 
-  const fetchPins = async (meetingId) => {
+  const fetchPins = async (meetingId: string) => {
     try {
       const res = await fetchWithAuth(`${API_BASE}/pins/${meetingId}`);
       if (res.ok) setPins(await res.json());
     } catch (err) { console.error("Failed to fetch pins:", err); }
   };
 
-  const handleCreateMeeting = async (meetingData) => {
+  const handleCreateMeeting = async (meetingData: any) => {
     try {
       const res = await fetchWithAuth(`${API_BASE}/meetings`, { method: "POST", body: JSON.stringify(meetingData) });
       if (res.ok) {
@@ -236,7 +236,7 @@ function DashboardApp() {
     return null;
   };
 
-  const handlePinResource = (timestamp) => {
+  const handlePinResource = (timestamp: string) => {
     setPinTimestamp(timestamp);
     setShowPinModal(true);
   };

@@ -6,12 +6,18 @@ import { useAuth } from '../context/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-export default function QROverlay({ onClose, meetingTitle, meetingId }) {
+interface QROverlayProps {
+    onClose: () => void;
+    meetingTitle: string;
+    meetingId: string;
+}
+
+export default function QROverlay({ onClose, meetingTitle, meetingId }: QROverlayProps) {
     const { user } = useAuth();
-    const [qrUrl, setQrUrl] = useState(null);
-    const [expiresAt, setExpiresAt] = useState(null);
+    const [qrUrl, setQrUrl] = useState<string | null>(null);
+    const [expiresAt, setExpiresAt] = useState<Date | null>(null);
     const [countdown, setCountdown] = useState(120);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState<string | null>(null);
 
     const generateQR = useCallback(async () => {
         if (!meetingId) return;
@@ -49,7 +55,7 @@ export default function QROverlay({ onClose, meetingTitle, meetingId }) {
         return () => clearInterval(timer);
     }, [countdown, generateQR]);
 
-    const formatCountdown = (s) => {
+    const formatCountdown = (s: number) => {
         const m = Math.floor(s / 60);
         const sec = s % 60;
         return `${m}:${sec.toString().padStart(2, '0')}`;

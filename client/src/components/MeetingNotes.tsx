@@ -19,21 +19,25 @@ import { useAuth } from '../context/AuthContext';
 
 const _raw = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 const API_BASE = _raw.endsWith('/api') ? _raw : `${_raw.replace(/\/?$/, '')}/api`;
+interface MeetingNotesProps {
+    meetingId?: string;
+}
+
 const lowlight = createLowlight(common);
 const AUTOSAVE_DELAY = 1500;
 
-export default function MeetingNotes({ meetingId }) {
+export default function MeetingNotes({ meetingId }: MeetingNotesProps) {
     const { user } = useAuth();
     const [collapsed, setCollapsed] = useState(false);
     const [headingOpen, setHeadingOpen] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [lastSaved, setLastSaved] = useState(null);
-    const saveTimerRef = useRef(null);
-    const headingRef = useRef(null);
+    const [lastSaved, setLastSaved] = useState<Date | null>(null);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const headingRef = useRef<HTMLDivElement | null>(null);
     const loadedRef = useRef(false);
 
-    const fetchWithAuth = useCallback(async (url, options = {}) => {
-        const headers = { 'Content-Type': 'application/json', ...options.headers };
+    const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(options.headers as Record<string, string> || {}) };
         if (user?.token) headers.Authorization = `Bearer ${user.token}`;
         return fetch(url, { ...options, headers });
     }, [user?.token]);
@@ -96,7 +100,7 @@ export default function MeetingNotes({ meetingId }) {
         },
     });
 
-    const saveNotes = useCallback(async (content) => {
+    const saveNotes = useCallback(async (content: any) => {
         if (!meetingId) return;
         setSaving(true);
         try {
@@ -136,8 +140,8 @@ export default function MeetingNotes({ meetingId }) {
 
     useEffect(() => {
         if (!headingOpen) return;
-        const handleClick = (e) => {
-            if (headingRef.current && !headingRef.current.contains(e.target)) {
+        const handleClick = (e: MouseEvent) => {
+            if (headingRef.current && !headingRef.current.contains(e.target as Node)) {
                 setHeadingOpen(false);
             }
         };
@@ -153,7 +157,7 @@ export default function MeetingNotes({ meetingId }) {
 
     if (!editor) return null;
 
-    const ToolBtn = ({ onClick, active, children, title }) => (
+    const ToolBtn = ({ onClick, active = false, children, title }: { onClick: () => void; active?: boolean; children: React.ReactNode; title: string }) => (
         <button
             type="button"
             className={`notes-toolbar-btn ${active ? 'active' : ''}`}

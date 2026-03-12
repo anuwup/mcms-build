@@ -1,15 +1,17 @@
 import { useEffect, useRef, useCallback } from 'react';
 
+declare global {
+    interface Window {
+        webkitAudioContext: typeof AudioContext;
+    }
+}
+
 const TARGET_SAMPLE_RATE = 16000;
 const BUFFER_SIZE = 4096;
-
-// RMS gate: only send audio frames where the speaker is actually talking.
-// This eliminates speaker bleed (echo-cancelled mic captures ~0.005 RMS for
-// playback audio, while direct speech is typically 0.02–0.3+).
 const RMS_GATE_THRESHOLD = 0.012;
 const VOICE_HOLD_FRAMES = 8;
 
-function resampleBuffer(inputBuffer, fromRate, toRate) {
+function resampleBuffer(inputBuffer: Float32Array, fromRate: number, toRate: number): Float32Array {
     if (fromRate === toRate) return inputBuffer;
     const ratio = fromRate / toRate;
     const newLength = Math.round(inputBuffer.length / ratio);
@@ -24,7 +26,7 @@ function resampleBuffer(inputBuffer, fromRate, toRate) {
     return result;
 }
 
-function float32ToInt16(float32Array) {
+function float32ToInt16(float32Array: Float32Array): Int16Array {
     const int16 = new Int16Array(float32Array.length);
     for (let i = 0; i < float32Array.length; i++) {
         const s = Math.max(-1, Math.min(1, float32Array[i]));
@@ -33,36 +35,33 @@ function float32ToInt16(float32Array) {
     return int16;
 }
 
-function int16ToBase64(int16Array) {
+function int16ToBase64(int16Array: Int16Array): string {
     const bytes = new Uint8Array(int16Array.buffer);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
     return btoa(binary);
 }
 
-function computeRMS(buffer) {
+function computeRMS(buffer: Float32Array): number {
     let sum = 0;
     for (let i = 0; i < buffer.length; i++) sum += buffer[i] * buffer[i];
     return Math.sqrt(sum / buffer.length);
 }
 
-/**
- * Captures the local microphone stream and sends audio chunks to the server
- * via socket for per-speaker transcription. Each participant's audio is sent
- * independently — the server receives isolated streams just like Google Meet's
- * architecture, enabling accurate speaker attribution.
- */
-export default function useTranscriptionCapture(socket, meetingId, localStream) {
-    const audioContextRef = useRef(null);
-    const processorRef = useRef(null);
-    const sourceRef = useRef(null);
-    const activeRef = useRef(false);
-    const holdCounterRef = useRef(0);
+export default function useTranscriptionCapture(
+    socket: any,
+    meetingId: string | null,
+    localStream: MediaStream | null
+) {
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const processorRef = useRef<ScriptProcessorNode | null>(null);
+    const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    const activeRef = useRef<boolean>(false);
+    const holdCounterRef = useRef<number>(0);
 
     const stopCapture = useCallback(() => {
         if (!activeRef.current) return;
         activeRef.current = false;
-
         if (processorRef.current) {
             processorRef.current.disconnect();
             processorRef.current.onaudioprocess = null;
@@ -74,30 +73,21 @@ export default function useTranscriptionCapture(socket, meetingId, localStream) 
 
     const startCapture = useCallback(() => {
         if (!socket || !meetingId || !localStream || activeRef.current) return;
-
         const audioTrack = localStream.getAudioTracks()[0];
         if (!audioTrack) return;
-
         activeRef.current = true;
         holdCounterRef.current = 0;
-
-        // Tap into the existing local media stream — no new getUserMedia needed
-        // since the WebRTC hook already acquired it.
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         audioContextRef.current = audioCtx;
-
         const audioOnlyStream = new MediaStream([audioTrack]);
         const source = audioCtx.createMediaStreamSource(audioOnlyStream);
         sourceRef.current = source;
-
         const processor = audioCtx.createScriptProcessor(BUFFER_SIZE, 1, 1);
         processorRef.current = processor;
-
-        processor.onaudioprocess = (e) => {
+        processor.onaudioprocess = (e: AudioProcessingEvent) => {
             if (!activeRef.current) return;
             const inputData = e.inputBuffer.getChannelData(0);
             const rms = computeRMS(inputData);
-
             if (rms >= RMS_GATE_THRESHOLD) {
                 holdCounterRef.current = VOICE_HOLD_FRAMES;
             } else if (holdCounterRef.current > 0) {
@@ -105,30 +95,25 @@ export default function useTranscriptionCapture(socket, meetingId, localStream) 
             } else {
                 return;
             }
-
             const resampled = resampleBuffer(inputData, audioCtx.sampleRate, TARGET_SAMPLE_RATE);
             const int16 = float32ToInt16(resampled);
             const base64 = int16ToBase64(int16);
             socket.emit('audio_chunk', { meetingId, data: base64 });
         };
-
         source.connect(processor);
         processor.connect(audioCtx.destination);
     }, [socket, meetingId, localStream]);
 
     useEffect(() => {
         if (!socket || !meetingId) return;
-
-        const handleStarted = ({ meetingId: mid }) => {
+        const handleStarted = ({ meetingId: mid }: { meetingId: string }) => {
             if (mid === meetingId) startCapture();
         };
-        const handleStopped = ({ meetingId: mid }) => {
+        const handleStopped = ({ meetingId: mid }: { meetingId: string }) => {
             if (mid === meetingId) stopCapture();
         };
-
         socket.on('transcription_started', handleStarted);
         socket.on('transcription_stopped', handleStopped);
-
         return () => {
             socket.off('transcription_started', handleStarted);
             socket.off('transcription_stopped', handleStopped);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from './Icon';
 import ShortcutTooltip from './ShortcutTooltip';
 import {
@@ -26,13 +26,33 @@ const statusConfig = {
 const CATEGORIES = ['Technical', 'Administrative', 'Decision', 'Follow-up'];
 const STATUSES = ['draft', 'pending', 'in-progress', 'completed'];
 
-export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh, addActionItemTrigger, onAddTriggered }) {
+interface ActionItem {
+    id?: string;
+    _id?: string;
+    title: string;
+    category: string;
+    status: string;
+    assignee?: string;
+    deadline?: string;
+    source?: string;
+}
+
+interface ActionItemsProps {
+    items: ActionItem[];
+    meetingId?: string;
+    fetchWithAuth?: (url: string, options?: RequestInit) => Promise<Response>;
+    onRefresh?: () => void;
+    addActionItemTrigger?: number;
+    onAddTriggered?: () => void;
+}
+
+export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh, addActionItemTrigger, onAddTriggered }: ActionItemsProps) {
     const [collapsed, setCollapsed] = useState(false);
     const [adding, setAdding] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newCategory, setNewCategory] = useState('Technical');
     const [newDeadline, setNewDeadline] = useState('');
-    const [editingId, setEditingId] = useState(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     useEffect(() => {
         if (addActionItemTrigger && addActionItemTrigger > 0) {
@@ -60,7 +80,7 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
         }
     };
 
-    const handleStatusChange = async (itemId, newStatus) => {
+    const handleStatusChange = async (itemId: string, newStatus: string) => {
         try {
             await (fetchWithAuth || fetch)(`${API_BASE}/action-items/${itemId}`, {
                 method: 'PUT',
@@ -73,7 +93,7 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
         }
     };
 
-    const handleDelete = async (itemId) => {
+    const handleDelete = async (itemId: string) => {
         try {
             await (fetchWithAuth || fetch)(`${API_BASE}/action-items/${itemId}`, { method: 'DELETE' });
             onRefresh?.();
@@ -120,7 +140,7 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                                                 className="input-field"
                                                 style={{ fontSize: '0.625rem', padding: '2px 4px', width: 'auto' }}
                                                 value={item.status}
-                                                onChange={(e) => { handleStatusChange(item.id || item._id, e.target.value); setEditingId(null); }}
+                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { handleStatusChange(item.id || item._id!, e.target.value); setEditingId(null); }}
                                             >
                                                 {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                             </select>
@@ -128,7 +148,7 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                                             <button
                                                 className="btn-icon btn-icon-sm"
                                                 style={{ fontSize: '0.5rem' }}
-                                                onClick={() => setEditingId(item.id || item._id)}
+                                                onClick={() => setEditingId(item.id || item._id || null)}
                                                 title="Change status"
                                             >
                                                 <Icon icon={Clock01Icon} size={10} />
@@ -166,13 +186,13 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                     })}
 
                     {adding ? (
-                        <div className="glass-card inline-form-card" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAdding(false); } }}>
+                        <div className="glass-card inline-form-card" onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAdding(false); } }}>
                             <input
                                 className="input-field"
                                 placeholder="Action item title..."
                                 value={newTitle}
-                                onChange={(e) => setNewTitle(e.target.value)}
-                                onKeyDown={(e) => {
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTitle(e.target.value)}
+                                onKeyDown={(e: React.KeyboardEvent) => {
                                     if (e.key === 'Enter') handleCreate();
                                     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAdding(false); }
                                 }}
@@ -183,7 +203,7 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                                 <select
                                     className="input-field"
                                     value={newCategory}
-                                    onChange={(e) => setNewCategory(e.target.value)}
+                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewCategory(e.target.value)}
                                 >
                                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
@@ -191,7 +211,7 @@ export default function ActionItems({ items, meetingId, fetchWithAuth, onRefresh
                                     type="date"
                                     className="input-field"
                                     value={newDeadline}
-                                    onChange={(e) => setNewDeadline(e.target.value)}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDeadline(e.target.value)}
                                 />
                                 <button className="btn btn-sm btn-primary" onClick={handleCreate}>Add</button>
                                 <button className="btn btn-sm btn-secondary" onClick={() => setAdding(false)}>Cancel</button>

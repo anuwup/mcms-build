@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Icon from './Icon';
 import ShortcutTooltip from './ShortcutTooltip';
 import {
@@ -9,15 +9,33 @@ import { useSocket } from '../context/SocketContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChange, onClose, fetchWithAuth, addAgendaItemTrigger, onAddTriggered }) {
+interface AgendaItem {
+    id: string;
+    title: string;
+    duration: number;
+    status: string;
+}
+
+interface AgendaPanelProps {
+    agendaItems: AgendaItem[];
+    meetingId: string;
+    isHost: boolean;
+    onItemChange?: (items: AgendaItem[]) => void;
+    onClose?: () => void;
+    fetchWithAuth?: (url: string, options?: RequestInit) => Promise<Response>;
+    addAgendaItemTrigger?: number;
+    onAddTriggered?: () => void;
+}
+
+export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChange, onClose, fetchWithAuth, addAgendaItemTrigger, onAddTriggered }: AgendaPanelProps) {
     const { socket } = useSocket();
-    const [items, setItems] = useState(agendaItems);
-    const [activeId, setActiveId] = useState(null);
+    const [items, setItems] = useState<AgendaItem[]>(agendaItems);
+    const [activeId, setActiveId] = useState<string | null>(null);
     const [countdown, setCountdown] = useState(0);
     const [addingItem, setAddingItem] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newDuration, setNewDuration] = useState(10);
-    const intervalRef = useRef(null);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => { setItems(agendaItems); }, [agendaItems]);
 
@@ -38,7 +56,7 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
 
     useEffect(() => {
         if (!socket) return;
-        const handleSync = ({ meetingId: mid, items: syncedItems, activeItemId }) => {
+        const handleSync = ({ meetingId: mid, items: syncedItems, activeItemId }: { meetingId: string; items: AgendaItem[]; activeItemId: string | null }) => {
             if (mid !== meetingId) return;
             setItems(syncedItems);
             setActiveId(activeItemId);
@@ -53,7 +71,7 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
             }
         };
         socket.on('agenda_sync', handleSync);
-        return () => socket.off('agenda_sync', handleSync);
+        return () => { socket.off('agenda_sync', handleSync); };
     }, [socket, meetingId, onItemChange]);
 
     useEffect(() => {
@@ -68,19 +86,19 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
         return () => clearInterval(intervalRef.current);
     }, [activeId]);
 
-    const formatTime = (s) => {
+    const formatTime = (s: number) => {
         const m = Math.floor(s / 60);
         const sec = s % 60;
         return `${m}:${sec.toString().padStart(2, '0')}`;
     };
 
-    const emitAction = useCallback((action, itemId) => {
+    const emitAction = useCallback((action: string, itemId: string) => {
         if (socket && meetingId) {
             socket.emit('agenda_action', { meetingId, action, itemId });
         }
     }, [socket, meetingId]);
 
-    const startItem = (id) => {
+    const startItem = (id: string) => {
         clearInterval(intervalRef.current);
         emitAction('start', id);
         const updated = items.map(item => ({
@@ -94,12 +112,12 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
         onItemChange?.(updated);
     };
 
-    const pauseItem = (id) => {
+    const pauseItem = (id: string) => {
         clearInterval(intervalRef.current);
         emitAction('pause', id);
     };
 
-    const completeItem = (id) => {
+    const completeItem = (id: string) => {
         clearInterval(intervalRef.current);
         emitAction('complete', id);
         const updated = items.map(item => ({
@@ -211,15 +229,15 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
                 <div
                     className="inline-form-card"
                     style={{ margin: '0 0.5rem 0.5rem' }}
-                    onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAddingItem(false); } }}
+                    onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAddingItem(false); } }}
                 >
                     <input
                         type="text"
                         className="input-field"
                         placeholder="Item title..."
                         value={newTitle}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAddingItem(false); } }}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTitle(e.target.value)}
+                        onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') handleAddItem(); if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAddingItem(false); } }}
                         autoFocus
                         style={{ marginBottom: '0.25rem' }}
                     />
@@ -228,7 +246,7 @@ export default function AgendaPanel({ agendaItems, meetingId, isHost, onItemChan
                             type="number"
                             className="input-field"
                             value={newDuration}
-                            onChange={(e) => setNewDuration(parseInt(e.target.value) || 5)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDuration(parseInt(e.target.value) || 5)}
                             min={1}
                         />
                         <span className="unit-label">min</span>

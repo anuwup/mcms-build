@@ -65,19 +65,47 @@ function parseArchiveSearchInput(input) {
     };
 }
 
+interface ArchiveMeeting {
+    id: string;
+    title: string;
+    date?: string;
+    time?: string;
+    host: string;
+    matchedTranscripts?: Array<{ speaker: string; text: string }>;
+}
+
+interface ArchiveDetail {
+    meeting: { title: string; date?: string; time?: string; host: string };
+    agendaItems: Array<{ id: string; title: string; duration: number }>;
+    transcriptsByAgenda: Record<string, Array<{ id: string; speaker: string; timestamp: string; text: string }>>;
+    actionItems: Array<{ id: string; title: string; status: string; assignee?: string; source?: string }>;
+    pins: Array<{ id: string; type: string; url?: string; label?: string; transcriptTimestamp?: string }>;
+}
+
+interface ArchiveViewProps {
+    fetchWithAuth?: (url: string, options?: RequestInit) => Promise<Response>;
+}
+
+interface AgendaSectionProps {
+    item: { id: string; title: string; duration: number };
+    index: number;
+    segments: Array<{ id: string; speaker: string; timestamp: string; text: string }>;
+    summary?: string;
+}
+
 const SEARCH_DEBOUNCE_MS = 300;
 
-export default function ArchiveView({ fetchWithAuth }) {
+export default function ArchiveView({ fetchWithAuth }: ArchiveViewProps) {
     const [query, setQuery] = useState('');
-    const [results, setResults] = useState([]);
+    const [results, setResults] = useState<ArchiveMeeting[]>([]);
     const [loading, setLoading] = useState(false);
-    const [selectedMeeting, setSelectedMeeting] = useState(null);
-    const [detail, setDetail] = useState(null);
-    const [summaries, setSummaries] = useState({});
+    const [selectedMeeting, setSelectedMeeting] = useState<string | null>(null);
+    const [detail, setDetail] = useState<ArchiveDetail | null>(null);
+    const [summaries, setSummaries] = useState<Record<string, string>>({});
     const [loadingSummary, setLoadingSummary] = useState(false);
-    const debounceRef = useRef(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const search = useCallback(async (searchInput) => {
+    const search = useCallback(async (searchInput: string) => {
         const { textQuery, dateFrom, dateTo } = parseArchiveSearchInput(searchInput);
         setLoading(true);
         try {
@@ -100,7 +128,7 @@ export default function ArchiveView({ fetchWithAuth }) {
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
     }, [query, search]);
 
-    const loadDetail = async (meetingId) => {
+    const loadDetail = async (meetingId: string) => {
         setSelectedMeeting(meetingId);
         try {
             const res = await (fetchWithAuth || fetch)(`${API_BASE}/archive/${meetingId}`);
@@ -110,7 +138,7 @@ export default function ArchiveView({ fetchWithAuth }) {
         }
     };
 
-    const loadSummary = async (meetingId) => {
+    const loadSummary = async (meetingId: string) => {
         setLoadingSummary(true);
         try {
             const res = await (fetchWithAuth || fetch)(`${API_BASE}/archive/${meetingId}/summary`);
@@ -285,7 +313,7 @@ export default function ArchiveView({ fetchWithAuth }) {
     );
 }
 
-function AgendaSection({ item, index, segments, summary }) {
+function AgendaSection({ item, index, segments, summary }: AgendaSectionProps) {
     const [expanded, setExpanded] = useState(false);
     return (
         <div className="glass-card" style={{ padding: '10px 14px', marginBottom: '8px' }}>

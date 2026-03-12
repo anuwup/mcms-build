@@ -2,7 +2,13 @@ import { useState, useMemo } from 'react';
 import Icon from './Icon';
 import { Target01Icon, Alert01Icon, ChartIncreaseIcon, ArrowDown01Icon, ArrowUp01Icon, EyeIcon } from '@hugeicons/core-free-icons';
 
-export default function LiveOutcome({ agendaItems = [], actionItems = [], transcripts = [] }) {
+interface LiveOutcomeProps {
+    agendaItems?: Array<{ id: string; status: string }>;
+    actionItems?: Array<{ category?: string }>;
+    transcripts?: any[];
+}
+
+export default function LiveOutcome({ agendaItems = [], actionItems = [], transcripts = [] }: LiveOutcomeProps) {
     const [collapsed, setCollapsed] = useState(false);
 
     const stats = useMemo(() => {

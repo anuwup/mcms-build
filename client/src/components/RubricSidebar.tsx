@@ -4,14 +4,42 @@ import { Add01Icon, Cancel01Icon, ArrowDown01Icon, ArrowUp01Icon } from '@hugeic
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-export default function RubricSidebar({ meetingId, participants, fetchWithAuth }) {
-    const [rubric, setRubric] = useState(null);
+interface Participant {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+}
+
+interface Criterion {
+    name: string;
+    maxScore: number;
+    description?: string;
+}
+
+interface Rubric {
+    criteria: Criterion[];
+    evaluations?: Array<{
+        participantName?: string;
+        participantId?: { name?: string };
+        scores: Array<{ score: number }>;
+    }>;
+}
+
+interface RubricSidebarProps {
+    meetingId?: string;
+    participants?: Participant[];
+    fetchWithAuth?: (url: string, options?: RequestInit) => Promise<Response>;
+}
+
+export default function RubricSidebar({ meetingId, participants, fetchWithAuth }: RubricSidebarProps) {
+    const [rubric, setRubric] = useState<Rubric | null>(null);
     const [collapsed, setCollapsed] = useState(false);
     const [loading, setLoading] = useState(false);
     const [showUpload, setShowUpload] = useState(false);
     const [criteriaInput, setCriteriaInput] = useState('');
-    const [selectedParticipant, setSelectedParticipant] = useState(null);
-    const [scores, setScores] = useState({});
+    const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
+    const [scores, setScores] = useState<Record<number, { score?: string; comment?: string }>>({});
 
     useEffect(() => {
         if (meetingId) loadRubric();

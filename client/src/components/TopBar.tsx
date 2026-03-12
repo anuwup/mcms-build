@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Icon from './Icon';
 import {
     Search01Icon,
@@ -25,13 +25,28 @@ const SERVER_BASE = _raw.replace(/\/api$/, '');
 
 const SEARCH_DEBOUNCE_MS = 280;
 
-function formatDate(dateStr) {
+interface TopBarProps {
+    streak: number;
+    userName: string;
+    onNewMeeting: () => void;
+    theme?: string;
+    onToggleTheme: () => void;
+    sidebarCollapsed: boolean;
+    onSidebarToggle: () => void;
+    onLogout?: () => void;
+    onOpenPoll?: (meetingId: string) => void;
+    searchInputRef?: React.RefObject<HTMLInputElement | null>;
+    onViewChange?: (view: string) => void;
+    onSearchResultSelect?: (meeting: any) => void;
+}
+
+function formatDate(dateStr: string) {
     if (!dateStr) return '';
     const d = new Date(dateStr + 'T00:00:00');
     return `${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })} ${d.getFullYear()}`;
 }
 
-function SidebarToggleIcon({ collapsed }) {
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="svg-icon sidebar-toggle-button-icon">
             <rect x="1" y="2" width="22" height="20" rx="4" />
@@ -40,10 +55,10 @@ function SidebarToggleIcon({ collapsed }) {
     );
 }
 
-function timeAgo(dateStr) {
+function timeAgo(dateStr: string) {
     const now = new Date();
     const date = new Date(dateStr);
-    const seconds = Math.floor((now - date) / 1000);
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
     if (seconds < 60) return 'just now';
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
@@ -53,25 +68,25 @@ function timeAgo(dateStr) {
     return `${days}d ago`;
 }
 
-export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark', onToggleTheme, sidebarCollapsed, onSidebarToggle, onLogout, onOpenPoll, searchInputRef, onViewChange, onSearchResultSelect }) {
+export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark', onToggleTheme, sidebarCollapsed, onSidebarToggle, onLogout, onOpenPoll, searchInputRef, onViewChange, onSearchResultSelect }: TopBarProps) {
     const { user } = useAuth();
     const { socket } = useSocket();
     const [showNotif, setShowNotif] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
-    const [notifications, setNotifications] = useState([]);
+    const [notifications, setNotifications] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState([]);
+    const [searchResults, setSearchResults] = useState<any[]>([]);
     const [searchLoading, setSearchLoading] = useState(false);
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
     const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1);
-    const notifRef = useRef(null);
-    const userMenuRef = useRef(null);
-    const searchBoxRef = useRef(null);
-    const searchDebounceRef = useRef(null);
+    const notifRef = useRef<HTMLDivElement | null>(null);
+    const userMenuRef = useRef<HTMLDivElement | null>(null);
+    const searchBoxRef = useRef<HTMLDivElement | null>(null);
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const unreadCount = notifications.filter(n => !n.read).length;
 
-    const runSearch = useCallback(async (q) => {
+    const runSearch = useCallback(async (q: string) => {
         const trimmed = (q || '').trim();
         if (trimmed.length < 2) {
             setSearchResults([]);
@@ -120,16 +135,16 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
 
     useEffect(() => {
         if (!socket) return;
-        const handler = (notif) => {
+        const handler = (notif: any) => {
             setNotifications(prev => [notif, ...prev]);
         };
         socket.on('notification', handler);
-        return () => socket.off('notification', handler);
+        return () => { socket.off('notification', handler); };
     }, [socket]);
 
     useEffect(() => {
-        function handleNotifKeyDown(e) {
-            const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+        function handleNotifKeyDown(e: KeyboardEvent) {
+            const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || (document.activeElement as HTMLElement)?.isContentEditable;
             if (e.key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !inInput) {
                 e.preventDefault();
                 setShowNotif(prev => !prev);
@@ -143,14 +158,14 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
     }, []);
 
     useEffect(() => {
-        function handleClickOutside(e) {
-            if (notifRef.current && !notifRef.current.contains(e.target)) {
+        function handleClickOutside(e: MouseEvent) {
+            if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
                 setShowNotif(false);
             }
-            if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+            if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
                 setShowUserMenu(false);
             }
-            if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
+            if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
                 setShowSearchDropdown(false);
             }
         }
@@ -168,7 +183,7 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
         } catch { /* ignore */ }
     };
 
-    const handleNotifClick = async (notif) => {
+    const handleNotifClick = async (notif: any) => {
         if (!notif.read) {
             try {
                 await fetch(`${API_BASE}/notifications/${notif._id}/read`, {
@@ -185,7 +200,7 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
         }
     };
 
-    const getNotifIcon = (type) => {
+    const getNotifIcon = (type: string) => {
         switch (type) {
             case 'poll_invite': return BarChartIcon;
             case 'meeting_confirmed': return Calendar02Icon;
@@ -193,14 +208,14 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
         }
     };
 
-    const selectSearchResult = useCallback((m) => {
+    const selectSearchResult = useCallback((m: any) => {
         onSearchResultSelect?.({ id: m.id, title: m.title, modality: m.modality, date: m.date, time: m.time, host: m.host, hostId: m.hostId, status: m.status, participants: m.participants });
         setSearchQuery('');
         setShowSearchDropdown(false);
         setSearchSelectedIndex(-1);
     }, [onSearchResultSelect]);
 
-    const handleSearchKeyDown = useCallback((e) => {
+    const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === 'Escape') {
             setShowSearchDropdown(false);
             setSearchQuery('');
@@ -225,7 +240,7 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
         <header className="topbar">
             <div className="topbar-left">
                 <ShortcutTooltip keys={['mod', 'B']}>
-                    <div type="button" className="sidebar-toggle" onClick={onSidebarToggle} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+                    <div className="sidebar-toggle" onClick={onSidebarToggle} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
                         <SidebarToggleIcon collapsed={sidebarCollapsed} />
                     </div>
                 </ShortcutTooltip>
@@ -242,7 +257,7 @@ export default function TopBar({ streak, userName, onNewMeeting, theme = 'dark',
                         type="text"
                         placeholder="Search meetings, agendas, transcripts..."
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                         onFocus={() => searchQuery.trim().length >= 2 && setShowSearchDropdown(true)}
                         onKeyDown={handleSearchKeyDown}
                     />

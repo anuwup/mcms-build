@@ -13,6 +13,13 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/api$/, '');
 
+interface SidebarProps {
+    currentView: string;
+    onViewChange: (view: string) => void;
+    collapsed: boolean;
+    onLogout?: () => void;
+}
+
 const mainNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: DashboardSquare01Icon, shortcutNum: '1' },
     { id: 'meeting', label: 'Live Meeting', icon: Video01Icon, shortcutNum: '2' },
@@ -21,7 +28,7 @@ const mainNavItems = [
     { id: 'analytics', label: 'Analytics', icon: BarChartIcon, shortcutNum: '5' },
 ];
 
-export default function Sidebar({ currentView, onViewChange, collapsed }) {
+export default function Sidebar({ currentView, onViewChange, collapsed }: SidebarProps) {
     const { user } = useAuth();
     const initial = user?.name?.charAt(0)?.toUpperCase() || 'U';
     const avatarUrl = user?.profileImage ? `${API_BASE}${user.profileImage}` : null;

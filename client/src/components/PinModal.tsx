@@ -4,7 +4,15 @@ import { Cancel01Icon, PinIcon } from '@hugeicons/core-free-icons';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-export default function PinModal({ meetingId, transcriptTimestamp, onClose, fetchWithAuth, onPinCreated }) {
+interface PinModalProps {
+    meetingId: string;
+    transcriptTimestamp?: string;
+    onClose: () => void;
+    fetchWithAuth?: (url: string, options?: RequestInit) => Promise<Response>;
+    onPinCreated?: () => void;
+}
+
+export default function PinModal({ meetingId, transcriptTimestamp, onClose, fetchWithAuth, onPinCreated }: PinModalProps) {
     const [type, setType] = useState('url');
     const [url, setUrl] = useState('');
     const [content, setContent] = useState('');

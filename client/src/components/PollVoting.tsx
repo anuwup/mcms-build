@@ -10,17 +10,38 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 
+interface PollSlot {
+    date: string;
+    time: string;
+    votes?: Array<string | { _id: string }>;
+}
+
+interface Poll {
+    _id: string;
+    slots: PollSlot[];
+    status: string;
+    resolvedSlot?: number;
+    meetingTitle?: string;
+    modality?: string;
+    meetingUrl?: string;
+}
+
+interface PollVotingProps {
+    meetingId: string;
+    onClose: () => void;
+}
+
 const _raw = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 const API_BASE = _raw.endsWith('/api') ? _raw : `${_raw}/api`;
 
-export default function PollVoting({ meetingId, onClose }) {
+export default function PollVoting({ meetingId, onClose }: PollVotingProps) {
     const { user } = useAuth();
     const { socket } = useSocket();
-    const [poll, setPoll] = useState(null);
+    const [poll, setPoll] = useState<Poll | null>(null);
     const [meetingTitle, setMeetingTitle] = useState('');
     const [modality, setModality] = useState('');
     const [meetingUrl, setMeetingUrl] = useState('');
-    const [selectedSlot, setSelectedSlot] = useState(null);
+    const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
     const [hasVoted, setHasVoted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [linkCopied, setLinkCopied] = useState(false);
@@ -54,7 +75,7 @@ export default function PollVoting({ meetingId, onClose }) {
 
     useEffect(() => {
         if (!socket || !poll?._id) return;
-        const handler = (data) => {
+        const handler = (data: { pollId: string; slots: PollSlot[]; status: string; resolvedSlot?: number }) => {
             if (data.pollId === poll._id) {
                 setPoll(prev => prev ? {
                     ...prev,
@@ -65,7 +86,7 @@ export default function PollVoting({ meetingId, onClose }) {
             }
         };
         socket.on('poll_updated', handler);
-        return () => socket.off('poll_updated', handler);
+        return () => { socket.off('poll_updated', handler); };
     }, [socket, poll?._id]);
 
     const handleVote = async () => {

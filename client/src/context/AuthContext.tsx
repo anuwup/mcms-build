@@ -1,17 +1,44 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-const AuthContext = createContext();
+export interface User {
+    token?: string;
+    name?: string;
+    email?: string;
+    id?: string;
+    [key: string]: unknown;
+}
+
+export type AuthResult = {
+    success: true;
+} | {
+    success: false;
+    message: string;
+}
+
+export interface AuthContextValue {
+    user: User | null;
+    login: (email: string, password: string) => Promise<AuthResult>;
+    register: (name: string, email: string, password: string) => Promise<AuthResult>;
+    logout: () => void;
+    updateUser: (updates: Partial<User>) => void;
+    loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const useAuth = () => useContext(AuthContext);
 
-export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null);
+interface AuthProviderProps {
+    children: ReactNode;
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+    const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Check for logged-in user on mount
         const userInfo = localStorage.getItem('mcms_userInfo');
         if (userInfo) {
             setUser(JSON.parse(userInfo));
@@ -19,7 +46,7 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
     }, []);
 
-    const login = async (email, password) => {
+    const login = async (email: string, password: string): Promise<AuthResult> => {
         try {
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',
@@ -34,11 +61,11 @@ export const AuthProvider = ({ children }) => {
             setUser(data);
             return { success: true };
         } catch (error) {
-            return { success: false, message: error.message };
+            return { success: false, message: (error as Error).message };
         }
     };
 
-    const register = async (name, email, password) => {
+    const register = async (name: string, email: string, password: string): Promise<AuthResult> => {
         try {
             const res = await fetch(`${API_BASE}/auth/register`, {
                 method: 'POST',
@@ -53,19 +80,19 @@ export const AuthProvider = ({ children }) => {
             setUser(data);
             return { success: true };
         } catch (error) {
-            return { success: false, message: error.message };
+            return { success: false, message: (error as Error).message };
         }
     };
 
-    const updateUser = (updates) => {
+    const updateUser = (updates: Partial<User>): void => {
         setUser(prev => {
             const updated = { ...prev, ...updates };
             localStorage.setItem('mcms_userInfo', JSON.stringify(updated));
-            return updated;
+            return updated as User | null;
         });
     };
 
-    const logout = () => {
+    const logout = (): void => {
         localStorage.removeItem('mcms_userInfo');
         setUser(null);
     };

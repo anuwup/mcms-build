@@ -16,11 +16,42 @@ import {
 import * as chrono from 'chrono-node';
 import { useAuth } from '../context/AuthContext';
 
+interface Suggestion {
+    label: string;
+    detail: string;
+    date: Date;
+}
+
+interface Slot {
+    id: number;
+    date: Date;
+    display: string;
+}
+
+interface ParticipantUser {
+    _id: string;
+    name: string;
+    email: string;
+    profileImage?: string;
+}
+
+interface CreatedMeeting {
+    title: string;
+    date?: string;
+    time?: string;
+    meetingUrl?: string;
+}
+
+interface MeetingCreationProps {
+    onClose: () => void;
+    onSubmit: (data: any) => Promise<any>;
+}
+
 const _raw = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 const API_BASE = _raw.endsWith('/api') ? _raw : `${_raw}/api`;
 const SERVER_BASE = API_BASE.replace(/\/api$/, '');
 
-function formatSlotDisplay(date) {
+function formatSlotDisplay(date: Date): string {
     const now = new Date();
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -35,7 +66,7 @@ function formatSlotDisplay(date) {
     return `${dayLabel}${timeStr}`;
 }
 
-function buildSuggestions(query) {
+function buildSuggestions(query: string): Suggestion[] {
     const now = new Date();
     const trimmed = query.trim().toLowerCase();
 
@@ -131,14 +162,14 @@ function buildSuggestions(query) {
     return results.slice(0, 6);
 }
 
-export default function MeetingCreation({ onClose, onSubmit }) {
+export default function MeetingCreation({ onClose, onSubmit }: MeetingCreationProps) {
     const { user } = useAuth();
     const [title, setTitle] = useState('');
     const [modality, setModality] = useState('Online');
     const [location, setLocation] = useState('');
-    const [slots, setSlots] = useState([]);
+    const [slots, setSlots] = useState<Slot[]>([]);
     const [inputValue, setInputValue] = useState('');
-    const [suggestions, setSuggestions] = useState([]);
+    const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [highlightIdx, setHighlightIdx] = useState(0);
     const [slotError, setSlotError] = useState(false);
@@ -153,26 +184,25 @@ export default function MeetingCreation({ onClose, onSubmit }) {
     }, [closing, onClose]);
 
     // Participant picker state
-    const [participants, setParticipants] = useState([]);
+    const [participants, setParticipants] = useState<ParticipantUser[]>([]);
     const [participantQuery, setParticipantQuery] = useState('');
-    const [userResults, setUserResults] = useState([]);
+    const [userResults, setUserResults] = useState<ParticipantUser[]>([]);
     const [showUserDropdown, setShowUserDropdown] = useState(false);
     const [userHighlightIdx, setUserHighlightIdx] = useState(0);
-    const participantInputRef = useRef(null);
-    const participantDropdownRef = useRef(null);
-    const participantRowRef = useRef(null);
-    const [participantDropdownPos, setParticipantDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+    const participantInputRef = useRef<HTMLInputElement | null>(null);
+    const participantDropdownRef = useRef<HTMLDivElement | null>(null);
+    const participantRowRef = useRef<HTMLDivElement | null>(null);
+    const [participantDropdownPos, setParticipantDropdownPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
-    // Post-creation state
-    const [createdMeeting, setCreatedMeeting] = useState(null);
+    const [createdMeeting, setCreatedMeeting] = useState<CreatedMeeting | null>(null);
     const [linkCopied, setLinkCopied] = useState(false);
 
-    const inputRef = useRef(null);
-    const inputRowRef = useRef(null);
-    const dropdownRef = useRef(null);
-    const labelTimerRef = useRef(null);
-    const searchTimerRef = useRef(null);
-    const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const inputRowRef = useRef<HTMLDivElement | null>(null);
+    const dropdownRef = useRef<HTMLDivElement | null>(null);
+    const labelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
     const updateDropdownPos = useCallback(() => {
         if (inputRowRef.current) {
@@ -200,13 +230,14 @@ export default function MeetingCreation({ onClose, onSubmit }) {
     }, [inputValue]);
 
     useEffect(() => {
-        function handleClickOutside(e) {
-            const inDropdown = dropdownRef.current && dropdownRef.current.contains(e.target);
-            const inInputRow = inputRowRef.current && inputRowRef.current.contains(e.target);
+        function handleClickOutside(e: MouseEvent) {
+            const target = e.target as Node;
+            const inDropdown = dropdownRef.current && dropdownRef.current.contains(target);
+            const inInputRow = inputRowRef.current && inputRowRef.current.contains(target);
             if (!inDropdown && !inInputRow) closeDropdown();
 
-            const inUserDropdown = participantDropdownRef.current && participantDropdownRef.current.contains(e.target);
-            const inUserRow = participantRowRef.current && participantRowRef.current.contains(e.target);
+            const inUserDropdown = participantDropdownRef.current && participantDropdownRef.current.contains(target);
+            const inUserRow = participantRowRef.current && participantRowRef.current.contains(target);
             if (!inUserDropdown && !inUserRow) setShowUserDropdown(false);
         }
         document.addEventListener('mousedown', handleClickOutside);
@@ -214,7 +245,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
     }, [closeDropdown]);
 
     useEffect(() => {
-        function handleEscape(e) {
+        function handleEscape(e: KeyboardEvent) {
             if (e.key === 'Escape' && !showDropdown && !showUserDropdown) {
                 handleClose();
             }
@@ -223,7 +254,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         return () => document.removeEventListener('keydown', handleEscape);
     }, [handleClose, showDropdown, showUserDropdown]);
 
-    const fetchParticipantSuggestions = useCallback(async (query) => {
+    const fetchParticipantSuggestions = useCallback(async (query: string) => {
         try {
             const res = await fetch(`${API_BASE}/users/search?q=${encodeURIComponent(query)}`, {
                 headers: { Authorization: `Bearer ${user?.token}` },
@@ -250,7 +281,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
     }, [participantQuery, fetchParticipantSuggestions]);
 
-    const selectSuggestion = (suggestion) => {
+    const selectSuggestion = (suggestion: Suggestion) => {
         setSlots(prev => [...prev, { id: Date.now(), date: suggestion.date, display: formatSlotDisplay(suggestion.date) }]);
         setInputValue('');
         setShowDropdown(false);
@@ -261,22 +292,22 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         setTimeout(() => inputRef.current?.focus(), 50);
     };
 
-    const removeSlot = (id) => {
+    const removeSlot = (id: number) => {
         setSlots(prev => prev.filter(s => s.id !== id));
     };
 
-    const addParticipant = (u) => {
+    const addParticipant = (u: ParticipantUser) => {
         setParticipants(prev => [...prev, u]);
         setParticipantQuery('');
         setShowUserDropdown(false);
         setTimeout(() => participantInputRef.current?.focus(), 50);
     };
 
-    const removeParticipant = (id) => {
+    const removeParticipant = (id: string) => {
         setParticipants(prev => prev.filter(p => p._id !== id));
     };
 
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: React.KeyboardEvent) => {
         if (!showDropdown || suggestions.length === 0) return;
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -292,7 +323,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         }
     };
 
-    const handleParticipantKeyDown = (e) => {
+    const handleParticipantKeyDown = (e: React.KeyboardEvent) => {
         if (!showUserDropdown || userResults.length === 0) return;
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -322,7 +353,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         }, 3000);
     };
 
-    const handleInputChange = (e) => {
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(e.target.value);
         setSlotError(false);
         if (labelText !== 'Scheduling Poll Slots') {
@@ -336,7 +367,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         if (!showDropdown) openDropdown();
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const filledSlots = slots.filter(s => s.date);
         if (filledSlots.length === 0) {
@@ -369,7 +400,7 @@ export default function MeetingCreation({ onClose, onSubmit }) {
         } catch { /* fallback handled by UI */ }
     };
 
-    const renderAvatar = (u, size = 10) => {
+    const renderAvatar = (u: ParticipantUser, size = 10) => {
         if (u.profileImage) {
             return <img src={`${SERVER_BASE}${u.profileImage}`} alt="" className="participant-chip-avatar-img" />;
         }

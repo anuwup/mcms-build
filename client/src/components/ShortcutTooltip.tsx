@@ -16,18 +16,20 @@ function KeyboardIcon() {
   );
 }
 
-/**
- * Wraps children with a tooltip that shows a keyboard icon + shortcut keys.
- * Portaled to document.body so it's never clipped by overflow:hidden ancestors.
- *
- * @param {{ keys?: string[], label?: string, position?: 'top'|'bottom'|'right', fullWidth?: boolean, children: React.ReactNode }} props
- */
-export default function ShortcutTooltip({ keys, label, position = 'bottom', fullWidth, children }) {
+interface ShortcutTooltipProps {
+  keys?: string[];
+  label?: string;
+  position?: 'top' | 'bottom' | 'right' | 'left';
+  fullWidth?: boolean;
+  children: React.ReactNode;
+}
+
+export default function ShortcutTooltip({ keys, label, position = 'bottom', fullWidth, children }: ShortcutTooltipProps) {
   const [visible, setVisible] = useState(false);
-  const [coords, setCoords] = useState(null);
-  const anchorRef = useRef(null);
-  const tooltipRef = useRef(null);
-  const timeout = useRef(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const computePosition = useCallback(() => {
     const anchor = anchorRef.current;
