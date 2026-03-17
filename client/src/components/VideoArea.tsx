@@ -184,6 +184,18 @@ export default function VideoArea({
   }, []);
 
   useEffect(() => {
+    if (!socket || !meetingId) return;
+    const handleMeetingEnded = ({ meetingId: mid }: { meetingId: string }) => {
+      if (mid === meetingId && hasJoined) {
+        leaveRoom();
+        setHasJoined(false);
+      }
+    };
+    socket.on('meeting_ended', handleMeetingEnded);
+    return () => { socket.off('meeting_ended', handleMeetingEnded); };
+  }, [socket, meetingId, hasJoined, leaveRoom]);
+
+  useEffect(() => {
     setHasJoined(false);
   }, [meetingId]);
 

@@ -1,0 +1,17 @@
+import mongoose from 'mongoose';
+
+const attendanceSchema = new mongoose.Schema({
+    meetingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting', required: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    method: { type: String, enum: ['qr', 'manual', 'auto'], default: 'auto' },
+    joinTimestamp: { type: Date, default: Date.now },
+    leaveTimestamp: { type: Date, default: null },
+    punctual: { type: Boolean, default: null },
+    qrToken: { type: String, default: null },
+}, {
+    timestamps: true,
+});
+
+attendanceSchema.index({ meetingId: 1, userId: 1 }, { unique: true });
+
+export = mongoose.model('Attendance', attendanceSchema);
