@@ -454,68 +454,84 @@ io.on('connection', (socket) => {
         try {
             if (usingMongoFlag && Meeting) {
                 const meeting = await Meeting.findById(meetingId);
-                if (!meeting) return;
-                if (meeting.hostId.toString() !== socket.userId.toString()) return;
+                if (meeting && meeting.status !== 'completed') {
+                    meeting.status = 'completed';
+                    await meeting.save();
 
-                meeting.status = 'completed';
-                await meeting.save();
-
-                // Auto-extract action items from transcript
-                try {
-                    const transcripts = await Transcript.find({ meetingId }).sort({ createdAt: 1 });
-                    if (transcripts.length > 0) {
-                        const fullText = transcripts.map(t => `${t.speaker}: ${t.text}`).join('\n');
-                        const agenda = await Agenda.findOne({ meetingId });
-                        const agendaItems = agenda ? agenda.items : [];
-
-                        try {
-                            const actions = await callAIExtractActions(fullText);
-                            for (const a of actions) {
-                                await ActionItem.create({
-                                    meetingId, title: a.title,
-                                    assigneeName: a.assignee || null,
-                                    category: a.category || 'Technical',
-                                    status: 'pending', deadline: a.deadline || null,
-                                    source: 'ai-extracted',
-                                    aiConfidence: a.confidence || null,
-                                });
-                            }
-                        } catch (e) {
-                            console.error('AI action extraction failed:', e.message);
-                        }
-
-                        try {
-                            const summaries = await callAISummarize(
-                                transcripts.map(t => ({ text: t.text, speaker: t.speaker, agendaItemId: t.agendaItemId })),
-                                agendaItems.map(i => ({ id: i.id, title: i.title }))
-                            );
-                            // Store summaries — could go into a MeetingSummary model or meeting doc
-                        } catch (e) {
-                            console.error('AI summarization failed:', e.message);
-                        }
-                    }
-                } catch (e) {
-                    console.error('Post-meeting AI processing error:', e.message);
-                }
-
-                // Notify participants
-                const participants = meeting.participants || [];
-                for (const pid of participants) {
+                    // Auto-extract action items from transcript
                     try {
-                        const notif = await Notification.create({
-                            userId: pid, type: 'meeting_summary_ready',
-                            meetingId, message: `Summary ready for "${meeting.title}"`,
-                        });
-                        emitToUser(pid, 'notification', {
-                            _id: notif._id, type: notif.type,
-                            meetingId, message: notif.message,
-                            read: false, createdAt: notif.createdAt,
-                        });
-                    } catch (e) { /* non-critical */ }
+                        const transcripts = await Transcript.find({ meetingId }).sort({ createdAt: 1 });
+                        if (transcripts.length > 0) {
+                            const fullText = transcripts.map(t => `${t.speaker}: ${t.text}`).join('\n');
+                            const agenda = await Agenda.findOne({ meetingId });
+                            const agendaItems = agenda ? agenda.items : [];
+
+                            try {
+                                const actions = await callAIExtractActions(fullText);
+                                for (const a of actions) {
+                                    await ActionItem.create({
+                                        meetingId, title: a.title,
+                                        assigneeName: a.assignee || null,
+                                        category: a.category || 'Technical',
+                                        status: 'pending', deadline: a.deadline || null,
+                                        source: 'ai-extracted',
+                                        aiConfidence: a.confidence || null,
+                                    });
+                                }
+                            } catch (e) {
+                                console.error('AI action extraction failed:', e.message);
+                            }
+
+                            try {
+                                const summaries = await callAISummarize(
+                                    transcripts.map(t => ({ text: t.text, speaker: t.speaker, agendaItemId: t.agendaItemId })),
+                                    agendaItems.map(i => ({ id: i.id, title: i.title }))
+                                );
+                            } catch (e) {
+                                console.error('AI summarization failed:', e.message);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Post-meeting AI processing error:', e.message);
+                    }
+
+                    // Notify participants
+                    const participants = meeting.participants || [];
+                    for (const pid of participants) {
+                        try {
+                            const notif = await Notification.create({
+                                userId: pid, type: 'meeting_summary_ready',
+                                meetingId, message: `Summary ready for "${meeting.title}"`,
+                            });
+                            emitToUser(pid, 'notification', {
+                                _id: notif._id, type: notif.type,
+                                meetingId, message: notif.message,
+                                read: false, createdAt: notif.createdAt,
+                            });
+                        } catch (e) { /* non-critical */ }
+                    }
                 }
             }
 
             io.to(`meeting:${meetingId}`).emit('meeting_ended', { meetingId });
+
+            // Kick all peers out of the WebRTC room
+            const room = meetingRooms.get(meetingId);
+            if (room) {
+                for (const [sid] of room) {
+                    io.to(`meeting:${meetingId}`).emit('peer_left', { socketId: sid });
+                }
+                meetingRooms.delete(meetingId);
+            }
+
+            // Tear down any active transcription session
+            const session = transcriptionSessions.get(meetingId);
+            if (session) {
+                for (const [, sp] of session.speakers) {
+                    if (sp.ws && sp.ws.readyState === WebSocket.OPEN) sp.ws.close();
+                }
+                transcriptionSessions.delete(meetingId);
+            }
         } catch (err) {
             console.error('end_meeting error:', err.message);
         }
